@@ -90,18 +90,22 @@ PAGE_TEMPLATE = """
   <p><a href="/leaderboard">View leaderboard</a></p>
 
 <script>
-async function loadPair() {
-  const res = await fetch('/api/pair');
-  const data = await res.json();
+function renderPair(pair) {
   const arena = document.getElementById('arena');
   arena.innerHTML = '';
-  data.pair.forEach(img => {
+  pair.forEach(img => {
     const div = document.createElement('div');
     div.className = 'card';
     div.innerHTML = `<img src="/static/images/${img}">`;
-    div.onclick = () => vote(img, data.pair.find(x => x !== img));
+    div.onclick = () => vote(img, pair.find(x => x !== img));
     arena.appendChild(div);
   });
+}
+
+async function loadPair() {
+  const res = await fetch('/api/pair');
+  const data = await res.json();
+  renderPair(data.pair);
 }
 
 async function vote(winner, loser) {
@@ -112,7 +116,15 @@ async function vote(winner, loser) {
     body: JSON.stringify({winner, loser})
   });
   document.getElementById('status').innerText = '';
-  loadPair();
+
+  // Keep the winner on screen, bring in a fresh challenger next to it.
+  const res = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
+  const data = await res.json();
+  if (data.opponent) {
+    renderPair([winner, data.opponent]);
+  } else {
+    loadPair();
+  }
 }
 
 loadPair();
@@ -190,6 +202,16 @@ def api_pair():
         return jsonify({"error": "Need at least 2 images."}), 400
     pair = random.sample(names, 2)
     return jsonify({"pair": pair})
+
+
+@app.route("/api/opponent")
+def api_opponent():
+    scores = load_scores()
+    exclude = request.args.get("exclude", "")
+    candidates = [n for n in scores.keys() if n != exclude]
+    if not candidates:
+        return jsonify({"opponent": None})
+    return jsonify({"opponent": random.choice(candidates)})
 
 
 @app.route("/api/vote", methods=["POST"])
