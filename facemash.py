@@ -132,10 +132,33 @@ LEADERBOARD_TEMPLATE = """
     td, th { padding:0.5rem 1.2rem; border-bottom:1px solid #333; }
     img { width:60px; height:60px; object-fit:cover; border-radius:6px; vertical-align:middle; }
     a { color:#4caf50; }
+    .champion {
+      margin: 2rem auto 1rem;
+      padding: 1.5rem;
+      max-width: 360px;
+      border: 2px solid #ffd700;
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(255,215,0,0.08), transparent);
+    }
+    .champion-label { color:#ffd700; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; font-size:0.85rem; }
+    .champion img { width:180px; height:180px; border-radius:10px; margin:0.8rem 0; }
+    .champion-name { font-size:1.1rem; margin-top:0.3rem; }
+    .champion-stats { color:#aaa; font-size:0.85rem; margin-top:0.3rem; }
   </style>
 </head>
 <body>
   <h1>Leaderboard</h1>
+
+  {% if ranked %}
+  {% set champ_name, champ = ranked[0] %}
+  <div class="champion">
+    <div class="champion-label">🏆 Current Champion</div>
+    <img src="/static/images/{{ champ_name }}">
+    <div class="champion-name">{{ champ_name }}</div>
+    <div class="champion-stats">Elo {{ champ.elo }} · {{ champ.wins }}W / {{ champ.losses }}L</div>
+  </div>
+  {% endif %}
+
   <table>
     <tr><th>#</th><th>Image</th><th>Elo</th><th>W</th><th>L</th></tr>
     {% for name, s in ranked %}
