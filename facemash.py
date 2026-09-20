@@ -200,7 +200,7 @@ LEADERBOARD_TEMPLATE = """
     * { box-sizing: border-box; }
     body {
       margin:0; font-family: 'Segoe UI', system-ui, sans-serif;
-      background: radial-gradient(circle at top, #1b1030 0%, #0a0612 60%, #050308 100%);
+      background: radial-gradient(circle at top, #1b1030 0%, #0a0612 55%, #050308 100%);
       color:#f5f5f7; text-align:center; min-height:100vh; padding:1.5rem 1rem 3rem;
     }
     .brand {
@@ -209,38 +209,88 @@ LEADERBOARD_TEMPLATE = """
       -webkit-background-clip:text; background-clip:text; color:transparent;
       text-transform:uppercase;
     }
-    .subhead { font-size:1.1rem; font-weight:600; color:#ccc; margin-bottom:1.2rem; }
-    .champion {
-      margin: 0 auto 1.8rem; padding: 1.6rem; max-width: 340px;
-      border: 2px solid #ffd93d; border-radius: 18px;
-      background: linear-gradient(180deg, rgba(255,217,61,0.12), rgba(255,77,141,0.04));
-      box-shadow: 0 10px 30px rgba(255,217,61,0.15);
+    .subhead {
+      font-size:1rem; font-weight:600; color:#bbb; margin-bottom:2rem;
+      letter-spacing:0.15em; text-transform:uppercase;
     }
-    .champion-label {
-      color:#ffd93d; font-weight:800; letter-spacing:0.08em; text-transform:uppercase;
-      font-size:0.8rem;
-    }
-    .champion img {
-      width:170px; height:170px; object-fit:cover; border-radius:14px; margin:0.9rem 0;
-      box-shadow:0 6px 18px rgba(0,0,0,0.5);
-    }
-    .champion-name { font-size:1.05rem; font-weight:600; word-break:break-word; }
-    .champion-stats { color:#aaa; font-size:0.85rem; margin-top:0.3rem; }
 
-    .board { max-width:520px; margin:0 auto; }
-    .row {
-      display:flex; align-items:center; gap:0.8rem; padding:0.6rem 0.4rem;
-      border-bottom:1px solid rgba(255,255,255,0.07); text-align:left;
+    /* ---- Podium ---- */
+    .podium {
+      display:flex; justify-content:center; align-items:flex-end;
+      gap: 0.8rem; max-width:640px; margin: 0 auto 2.5rem;
     }
-    .rank { width:1.6rem; font-weight:800; color:#888; flex-shrink:0; }
-    .row img { width:48px; height:48px; object-fit:cover; border-radius:8px; flex-shrink:0; }
-    .name { flex:1; font-size:0.9rem; word-break:break-word; }
-    .stats { font-size:0.8rem; color:#999; white-space:nowrap; }
-    .elo { font-weight:700; color:#ff9d4d; }
+    .pod {
+      flex:1; display:flex; flex-direction:column; align-items:center;
+      animation: rise 0.6s ease both;
+    }
+    .pod.p1 { order:2; }
+    .pod.p2 { order:1; }
+    .pod.p3 { order:3; }
+    @keyframes rise {
+      from { opacity:0; transform: translateY(24px); }
+      to   { opacity:1; transform: translateY(0); }
+    }
+    .pod .medal { font-size:1.6rem; margin-bottom:0.3rem; }
+    .pod .avatar-wrap {
+      position:relative; border-radius:50%; padding:3px;
+    }
+    .pod.p1 .avatar-wrap { background: linear-gradient(135deg,#ffd93d,#ff9d4d); }
+    .pod.p2 .avatar-wrap { background: linear-gradient(135deg,#d8d8e0,#9a9aa8); }
+    .pod.p3 .avatar-wrap { background: linear-gradient(135deg,#e0a370,#a5673a); }
+    .pod img {
+      display:block; border-radius:50%; object-fit:cover; background:#151022;
+      border:3px solid #0a0612;
+    }
+    .pod.p1 img { width:104px; height:104px; }
+    .pod.p2 img { width:80px; height:80px; }
+    .pod.p3 img { width:80px; height:80px; }
+    .pod .pname {
+      margin-top:0.6rem; font-size:0.82rem; font-weight:600; max-width:110px;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    .pod .pelo { font-size:0.78rem; color:#ff9d4d; font-weight:700; margin-top:0.15rem; }
+    .pod .stand {
+      margin-top:0.7rem; width:100%; border-radius:10px 10px 0 0;
+      display:flex; align-items:flex-start; justify-content:center;
+      font-weight:900; color:rgba(255,255,255,0.85); padding-top:0.4rem;
+    }
+    .pod.p1 .stand { height:78px; background:linear-gradient(180deg,#ffd93d33,#ffd93d0d); font-size:1.4rem; }
+    .pod.p2 .stand { height:54px; background:linear-gradient(180deg,#d8d8e033,#d8d8e00d); font-size:1.2rem; }
+    .pod.p3 .stand { height:38px; background:linear-gradient(180deg,#e0a37033,#e0a3700d); font-size:1.2rem; }
+
+    /* ---- Rest of the board ---- */
+    .board { max-width:520px; margin:0 auto; }
+    .board-title {
+      text-align:left; font-size:0.78rem; letter-spacing:0.1em; text-transform:uppercase;
+      color:#777; margin:0 0 0.6rem 0.4rem; font-weight:700;
+    }
+    .row {
+      display:flex; align-items:center; gap:0.8rem; padding:0.65rem 0.7rem;
+      text-align:left; border-radius:12px; background:rgba(255,255,255,0.025);
+      margin-bottom:0.4rem; border:1px solid rgba(255,255,255,0.05);
+      transition: background 0.15s ease;
+    }
+    .row:hover { background:rgba(255,255,255,0.05); }
+    .rank { width:1.8rem; font-weight:800; color:#777; flex-shrink:0; font-size:0.9rem; }
+    .row img {
+      width:46px; height:46px; object-fit:cover; border-radius:10px; flex-shrink:0;
+      border:1px solid rgba(255,255,255,0.08);
+    }
+    .name { flex:1; font-size:0.88rem; word-break:break-word; }
+    .stats { font-size:0.78rem; color:#999; white-space:nowrap; text-align:right; }
+    .elo { font-weight:800; color:#ff9d4d; display:block; font-size:0.85rem; }
+    .wl { color:#777; }
 
     a.link {
-      display:inline-block; margin-top:1.8rem; color:#ffd93d; text-decoration:none;
+      display:inline-block; margin-top:2rem; color:#ffd93d; text-decoration:none;
       font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
+    }
+
+    @media (max-width:420px) {
+      .podium { gap:0.4rem; }
+      .pod.p1 img { width:84px; height:84px; }
+      .pod.p2 img, .pod.p3 img { width:64px; height:64px; }
+      .pod .pname { max-width:80px; font-size:0.72rem; }
     }
   </style>
 </head>
@@ -248,23 +298,52 @@ LEADERBOARD_TEMPLATE = """
   <div class="brand">Facemash</div>
   <div class="subhead">Leaderboard</div>
 
-  {% if ranked %}
-  {% set champ_name, champ = ranked[0] %}
-  <div class="champion">
-    <div class="champion-label">🏆 Current Champion</div>
-    <img src="/static/images/{{ champ_name }}">
-    <div class="champion-name">{{ champ_name }}</div>
-    <div class="champion-stats">Elo {{ champ.elo }} · {{ champ.wins }}W / {{ champ.losses }}L</div>
+  {% if ranked|length >= 1 %}
+  <div class="podium">
+    {% if ranked|length >= 2 %}
+    {% set n2, s2 = ranked[1] %}
+    <div class="pod p2">
+      <div class="medal">🥈</div>
+      <div class="avatar-wrap"><img src="/static/images/{{ n2 }}"></div>
+      <div class="pname">{{ n2 }}</div>
+      <div class="pelo">{{ s2.elo }}</div>
+      <div class="stand">2</div>
+    </div>
+    {% endif %}
+
+    {% set n1, s1 = ranked[0] %}
+    <div class="pod p1">
+      <div class="medal">🥇</div>
+      <div class="avatar-wrap"><img src="/static/images/{{ n1 }}"></div>
+      <div class="pname">{{ n1 }}</div>
+      <div class="pelo">{{ s1.elo }}</div>
+      <div class="stand">1</div>
+    </div>
+
+    {% if ranked|length >= 3 %}
+    {% set n3, s3 = ranked[2] %}
+    <div class="pod p3">
+      <div class="medal">🥉</div>
+      <div class="avatar-wrap"><img src="/static/images/{{ n3 }}"></div>
+      <div class="pname">{{ n3 }}</div>
+      <div class="pelo">{{ s3.elo }}</div>
+      <div class="stand">3</div>
+    </div>
+    {% endif %}
   </div>
   {% endif %}
 
   <div class="board">
+    {% if ranked|length > 3 %}<div class="board-title">Full Rankings</div>{% endif %}
     {% for name, s in ranked %}
     <div class="row">
       <div class="rank">#{{ loop.index }}</div>
       <img src="/static/images/{{ name }}">
       <div class="name">{{ name }}</div>
-      <div class="stats"><span class="elo">{{ s.elo }}</span> · {{ s.wins }}W/{{ s.losses }}L</div>
+      <div class="stats">
+        <span class="elo">{{ s.elo }}</span>
+        <span class="wl">{{ s.wins }}W / {{ s.losses }}L</span>
+      </div>
     </div>
     {% endfor %}
   </div>
