@@ -92,12 +92,12 @@ PAGE_TEMPLATE = """
       margin: 0 0 1.2rem; letter-spacing:0.02em;
     }
     .arena {
-      display:flex; justify-content:center; align-items:stretch; gap:1.2rem;
-      margin-top:1rem; flex-wrap:wrap; max-width:760px; margin-left:auto; margin-right:auto;
+      display:flex; justify-content:center; align-items:stretch; gap:1.5rem;
+      margin-top:1rem; flex-wrap:wrap; max-width:960px; margin-left:auto; margin-right:auto;
     }
     .card {
       cursor:pointer; border-radius:18px; overflow:hidden; position:relative;
-      flex:1 1 260px; max-width:340px; min-width:150px;
+      flex:1 1 340px; max-width:440px; min-width:200px;
       border:2px solid rgba(255,255,255,0.08);
       box-shadow: 0 8px 24px rgba(0,0,0,0.4);
       transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
@@ -113,7 +113,7 @@ PAGE_TEMPLATE = """
     }
     .vs {
       display:flex; align-items:center; justify-content:center;
-      font-weight:900; font-size:1.3rem; color:#ff9d4d; min-width:2rem;
+      font-weight:900; font-size:1.5rem; color:#ff9d4d; min-width:2.5rem;
     }
     #status { margin-top:1.3rem; font-size:0.9rem; color:#999; min-height:1.2rem; }
     a.link {
@@ -347,7 +347,7 @@ LEADERBOARD_TEMPLATE = """
     </div>
     {% endfor %}
   </div>
-  <p><a class="link" href="/">⬅ Back to voting</a></p>
+  <p><a class="link" href="/">⬅ Back to voting page</a></p>
 </body>
 </html>
 """
