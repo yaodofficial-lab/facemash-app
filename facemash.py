@@ -20,7 +20,7 @@ app = Flask(__name__)
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
-K_FACTOR = 32          # Elo sensitivity
+K_FACTOR = 32         # Elo sensitivity
 STARTING_ELO = 1200
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -128,7 +128,7 @@ PAGE_TEMPLATE = """
 </head>
 <body>
   <div class="brand">Facemash</div>
-  <div class="tagline">Who is the winner?</div>
+  <div class="tagline">Who is the hottest?</div>
   <div class="arena" id="arena"></div>
   <div id="status"></div>
   <p><a class="link" href="/leaderboard">🏆 View Leaderboard</a></p>
