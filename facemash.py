@@ -1,4 +1,4 @@
-[10/21/2026 9:08 AM] YAOD: """
+"""
 Facemash-style app: head-to-head image voting with Elo-based ranking.
 
 Setup:
@@ -16,7 +16,7 @@ import random
 from pathlib import Path
 from flask import Flask, jsonify, render_template_string, request
 
-app = Flask(name)
+app = Flask(__name__)
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
@@ -120,7 +120,7 @@ PAGE_TEMPLATE = """
       display:inline-block; margin-top:1.6rem; color:#ffd93d; text-decoration:none;
       font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
     }
-[10/21/2026 9:08 AM] YAOD: @media (max-width: 480px) {
+    @media (max-width: 480px) {
       .arena { gap:0.7rem; }
       .vs { min-width:1.2rem; font-size:1rem; }
     }
@@ -143,7 +143,7 @@ function renderPair(pair) {
   }
   const left = document.createElement('div');
   left.className = 'card';
-  left.innerHTML = <img src="/static/images/${pair[0]}">;
+  left.innerHTML = `<img src="/static/images/${pair[0]}">`;
   left.onclick = () => vote(pair[0], pair[1]);
 
   const vs = document.createElement('div');
@@ -152,7 +152,7 @@ function renderPair(pair) {
 
   const right = document.createElement('div');
   right.className = 'card';
-  right.innerHTML = <img src="/static/images/${pair[1]}">;
+  right.innerHTML = `<img src="/static/images/${pair[1]}">`;
   right.onclick = () => vote(pair[1], pair[0]);
 
   arena.appendChild(left);
@@ -213,7 +213,8 @@ LEADERBOARD_TEMPLATE = """
       font-size:1rem; font-weight:600; color:#bbb; margin-bottom:2rem;
       letter-spacing:0.15em; text-transform:uppercase;
     }
-[10/21/2026 9:08 AM] YAOD: /* ---- Podium ---- */
+
+    /* ---- Podium ---- */
     .podium {
       display:flex; justify-content:center; align-items:flex-end;
       gap: 0.8rem; max-width:640px; margin: 0 auto 2.5rem;
@@ -309,7 +310,8 @@ LEADERBOARD_TEMPLATE = """
       <div class="stand">2</div>
     </div>
     {% endif %}
-[10/21/2026 9:08 AM] YAOD: {% set n1, s1 = ranked[0] %}
+
+    {% set n1, s1 = ranked[0] %}
     <div class="pod p1">
       <div class="medal">🥇</div>
       <div class="avatar-wrap"><img src="/static/images/{{ n1 }}"></div>
@@ -345,7 +347,7 @@ LEADERBOARD_TEMPLATE = """
     </div>
     {% endfor %}
   </div>
-  <p><a class="link" href="/">⬅️ Back to voting</a></p>
+  <p><a class="link" href="/">⬅ Back to voting</a></p>
 </body>
 </html>
 """
@@ -394,6 +396,6 @@ def leaderboard():
     return render_template_string(LEADERBOARD_TEMPLATE, ranked=ranked)
 
 
-if name == "main":
+if __name__ == "__main__":
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     app.run(debug=True)
