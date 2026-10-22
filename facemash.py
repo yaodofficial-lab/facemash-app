@@ -1,6 +1,6 @@
 """
-Facemash-style app: endless head-to-head voting with simple win/loss counting, 
-production support, and password-protected admin reset (`brolx`).
+Facemash-style app: head-to-head voting with session-based auto-redirect control, 
+simple win/loss counting, and password-protected admin reset.
 
 Setup:
     pip install flask gunicorn
@@ -108,7 +108,7 @@ PAGE_TEMPLATE = """
       display:flex; align-items:center; justify-content:center;
       font-weight:900; font-size:1.5rem; color:#ff9d4d; min-width:2.5rem;
     }
-    #status { margin-top:1.3rem; font-size:1.1rem; color:#999; min-height:1.2rem; }
+    #status { margin-top:1.3rem; font-size:1.1rem; color:#ffd93d; min-height:1.2rem; font-weight:700; }
     .nav-links {
       margin-top: 1.6rem;
       display: flex;
@@ -137,7 +137,7 @@ PAGE_TEMPLATE = """
   <div class="arena" id="arena"></div>
   <div id="status"></div>
   <div class="nav-links">
-    <a class="link" href="/leaderboard">🏆 View Leaderboard</a>
+    <a class="link" href="/leaderboard" onclick="sessionStorage.removeItem('redirected');">🏆 View Leaderboard</a>
     <a class="reset-link" onclick="triggerReset()">⚙️ Admin Reset</a>
   </div>
 
@@ -176,17 +176,29 @@ async function loadPair() {
 
 async function vote(winner, loser) {
   document.getElementById('status').innerText = 'Recording vote...';
-  await fetch('/api/vote', {
+  const res = await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({winner, loser})
   });
+  const data = await res.json();
+
+  // Check if target reached AND user hasn't already been auto-redirected in this session
+  if (data.finished && !sessionStorage.getItem('redirected')) {
+    sessionStorage.setItem('redirected', 'true');
+    document.getElementById('status').innerText = '🎉 All rounds complete! Redirecting to Leaderboard...';
+    setTimeout(() => {
+      window.location.href = '/leaderboard';
+    }, 1000);
+    return;
+  }
+
   document.getElementById('status').innerText = '';
 
-  const res = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
-  const data = await res.json();
-  if (data.opponent) {
-    renderPair([winner, data.opponent]);
+  const oppRes = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
+  const oppData = await oppRes.json();
+  if (oppData.opponent) {
+    renderPair([winner, oppData.opponent]);
   } else {
     loadPair();
   }
@@ -376,7 +388,8 @@ LEADERBOARD_TEMPLATE = """
   </div>
   
   <div class="nav-links">
-    <a class="link" href="/">⬅ Back to voting page</a>
+    <!-- Clicking this clears the redirect flag so they can vote again freely -->
+    <a class="link" href="/" onclick="sessionStorage.removeItem('redirected');">⬅ Back to voting page</a>
     <a class="reset-link" onclick="triggerReset()">⚙️ Admin Reset</a>
   </div>
 
@@ -426,7 +439,12 @@ def api_vote():
     if winner not in scores or loser not in scores:
         return jsonify({"error": "Unknown image."}), 400
     record_vote(scores, winner, loser)
-    return jsonify({"ok": True})
+    
+    total_matches = sum(v["wins"] + v["losses"] for v in scores.values()) // 2
+    target_votes = len(scores)
+    finished = total_matches >= target_votes
+    
+    return jsonify({"ok": True, "finished": finished})
 
 
 @app.route("/leaderboard")
