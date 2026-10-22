@@ -176,10 +176,10 @@ async function vote(winner, loser) {
   const data = await res.json();
 
   if (data.finished) {
-    document.getElementById('status').innerText = '🎉 All images voted on! Loading Leaderboard...';
+    document.getElementById('status').innerText = '🎉 Voting complete! Redirecting to Leaderboard...';
     setTimeout(() => {
       window.location.href = '/leaderboard';
-    }, 1000);
+    }, 800);
     return;
   }
 
@@ -397,9 +397,14 @@ def api_vote():
         return jsonify({"error": "Unknown image."}), 400
     update_elo(scores, winner, loser)
     
-    # Check if every image has been voted on at least once
-    all_finished = all(v["wins"] + v["losses"] > 0 for v in scores.values())
-    return jsonify({"ok": True, "finished": all_finished})
+    # Calculate total matches played across all items (since wins + losses = total matches recorded)
+    total_matches = sum(v["wins"] + v["losses"] for v in scores.values()) // 2
+    
+    # Define how many total votes constitute a completed session (e.g., equal to the number of uploaded images)
+    target_votes = len(scores)
+    
+    finished = total_matches >= target_votes
+    return jsonify({"ok": True, "finished": finished})
 
 
 @app.route("/leaderboard")
