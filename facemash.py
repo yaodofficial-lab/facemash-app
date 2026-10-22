@@ -1,5 +1,5 @@
 """
-Facemash-style app: head-to-head voting with password-protected admin reset.
+Facemash-style app: head-to-head voting with auto-redirect and password-protected admin reset.
 
 Setup:
     pip install flask
@@ -19,7 +19,7 @@ from flask import Flask, jsonify, render_template_string, request, redirect, url
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-ADMIN_PASSWORD = "brolx"  # Admin password set to brolx
+ADMIN_PASSWORD = "brolx"  # Admin password
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
@@ -107,7 +107,7 @@ PAGE_TEMPLATE = """
       display:flex; align-items:center; justify-content:center;
       font-weight:900; font-size:1.5rem; color:#ff9d4d; min-width:2.5rem;
     }
-    #status { margin-top:1.3rem; font-size:1rem; color:#999; min-height:1.2rem; }
+    #status { margin-top:1.3rem; font-size:1.1rem; color:#ffd93d; min-height:1.2rem; font-weight:700; }
     .nav-links {
       margin-top: 1.6rem;
       display: flex;
@@ -118,6 +118,11 @@ PAGE_TEMPLATE = """
     a.link {
       color:#ffd93d; text-decoration:none;
       font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
+    }
+    a.reset-link {
+      color:#ff4d8d; text-decoration:none;
+      font-weight:600; border-bottom:1px solid rgba(255,77,141,0.4); padding-bottom:2px;
+      cursor: pointer;
     }
     @media (max-width: 480px) {
       .arena { gap:0.7rem; }
@@ -132,6 +137,7 @@ PAGE_TEMPLATE = """
   <div id="status"></div>
   <div class="nav-links">
     <a class="link" href="/leaderboard">🏆 View Leaderboard</a>
+    <a class="reset-link" onclick="triggerReset()">⚙️ Admin Reset</a>
   </div>
 
 <script>
@@ -169,19 +175,36 @@ async function loadPair() {
 
 async function vote(winner, loser) {
   document.getElementById('status').innerText = 'Recording vote...';
-  await fetch('/api/vote', {
+  const res = await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({winner, loser})
   });
+  const data = await res.json();
+
+  if (data.finished) {
+    document.getElementById('status').innerText = '🎉 All rounds complete! Redirecting to Leaderboard...';
+    setTimeout(() => {
+      window.location.href = '/leaderboard';
+    }, 1000);
+    return;
+  }
+
   document.getElementById('status').innerText = '';
 
-  const res = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
-  const data = await res.json();
-  if (data.opponent) {
-    renderPair([winner, data.opponent]);
+  const oppRes = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
+  const oppData = await oppRes.json();
+  if (oppData.opponent) {
+    renderPair([winner, oppData.opponent]);
   } else {
     loadPair();
+  }
+}
+
+function triggerReset() {
+  const pwd = prompt("Enter Admin Password to Reset Scores:");
+  if (pwd) {
+    window.location.href = "/admin-reset-secret?pwd=" + encodeURIComponent(pwd);
   }
 }
 
@@ -203,7 +226,6 @@ LEADERBOARD_TEMPLATE = """
       margin:0; font-family: 'Segoe UI', system-ui, sans-serif;
       background: radial-gradient(circle at top, #1b1030 0%, #0a0612 55%, #050308 100%);
       color:#f5f5f7; text-align:center; min-height:100vh; padding:1.5rem 1rem 3rem;
-      position: relative;
     }
     .brand {
       font-size: clamp(1.8rem, 7vw, 2.6rem); font-weight:900; letter-spacing:0.06em;
@@ -269,198 +291,4 @@ LEADERBOARD_TEMPLATE = """
     .row {
       display:flex; align-items:center; gap:0.8rem; padding:0.65rem 0.7rem;
       text-align:left; border-radius:12px; background:rgba(255,255,255,0.025);
-      margin-bottom:0.4rem; border:1px solid rgba(255,255,255,0.05);
-      transition: background 0.15s ease;
-    }
-    .row:hover { background:rgba(255,255,255,0.05); }
-    .rank { width:1.8rem; font-weight:800; color:#777; flex-shrink:0; font-size:0.9rem; }
-    .row img {
-      width:46px; height:46px; object-fit:cover; border-radius:10px; flex-shrink:0;
-      border:1px solid rgba(255,255,255,0.08);
-    }
-    .name { flex:1; font-size:0.88rem; word-break:break-word; }
-    .stats { font-size:0.78rem; color:#999; white-space:nowrap; text-align:right; }
-    .wins-count { font-weight:800; color:#ff9d4d; display:block; font-size:0.85rem; }
-    .wl { color:#777; }
-
-    .nav-links {
-      margin-top: 2rem;
-      display: flex;
-      justify-content: center;
-      gap: 2rem;
-      align-items: center;
-    }
-    a.link {
-      color:#ffd93d; text-decoration:none;
-      font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
-    }
-
-    /* Secret Reset Button */
-    a.secret-reset {
-      color: rgba(255, 255, 255, 0.15);
-      text-decoration: none;
-      font-size: 0.75rem;
-      display: inline-block;
-      margin-top: 2.5rem;
-      padding: 5px;
-      cursor: pointer;
-      transition: color 0.2s ease;
-    }
-    a.secret-reset:hover {
-      color: #ff4d8d;
-    }
-
-    @media (max-width:420px) {
-      .podium { gap:0.4rem; }
-      .pod.p1 img { width:84px; height:84px; }
-      .pod.p2 img, .pod.p3 img { width:64px; height:64px; }
-      .pod .pname { max-width:80px; font-size:0.72rem; }
-    }
-  </style>
-</head>
-<body>
-  <div class="brand">Facemash</div>
-  <div class="subhead">Leaderboard</div>
-
-  {% if ranked|length >= 1 %}
-  <div class="podium">
-    {% if ranked|length >= 2 %}
-    {% set n2, s2 = ranked[1] %}
-    <div class="pod p2">
-      <div class="medal">🥈</div>
-      <div class="avatar-wrap"><img src="/static/images/{{ n2 }}"></div>
-      <div class="pname">{{ n2 }}</div>
-      <div class="pscore">{{ s2.wins }} Wins</div>
-      <div class="stand">2</div>
-    </div>
-    {% endif %}
-
-    {% set n1, s1 = ranked[0] %}
-    <div class="pod p1">
-      <div class="medal">🥇</div>
-      <div class="avatar-wrap"><img src="/static/images/{{ n1 }}"></div>
-      <div class="pname">{{ n1 }}</div>
-      <div class="pscore">{{ s1.wins }} Wins</div>
-      <div class="stand">1</div>
-    </div>
-
-    {% if ranked|length >= 3 %}
-    {% set n3, s3 = ranked[2] %}
-    <div class="pod p3">
-      <div class="medal">🥉</div>
-      <div class="avatar-wrap"><img src="/static/images/{{ n3 }}"></div>
-      <div class="pname">{{ n3 }}</div>
-      <div class="pscore">{{ s3.wins }} Wins</div>
-      <div class="stand">3</div>
-    </div>
-    {% endif %}
-  </div>
-  {% endif %}
-
-  <div class="board">
-    {% if ranked|length > 3 %}<div class="board-title">Full Rankings</div>{% endif %}
-    {% for name, s in ranked %}
-    <div class="row">
-      <div class="rank">#{{ loop.index }}</div>
-      <img src="/static/images/{{ name }}">
-      <div class="name">{{ name }}</div>
-      <div class="stats">
-        <span class="wins-count">{{ s.wins }} Wins</span>
-        <span class="wl">{{ s.losses }} Losses</span>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  
-  <div class="nav-links">
-    <a class="link" href="/">⬅ Back to voting page</a>
-  </div>
-
-  <!-- Secret password-protected reset button -->
-  <div>
-    <a class="secret-reset" onclick="triggerReset()">•</a>
-  </div>
-
-<script>
-function triggerReset() {
-  const pwd = prompt("Enter Admin Password to Reset Scores:");
-  if (pwd) {
-    window.location.href = "/admin-reset-secret?pwd=" + encodeURIComponent(pwd);
-  }
-}
-</script>
-</body>
-</html>
-"""
-
-
-@app.route("/")
-def index():
-    return render_template_string(PAGE_TEMPLATE)
-
-
-@app.route("/api/pair")
-def api_pair():
-    scores = load_scores()
-    names = list(scores.keys())
-    if len(names) < 2:
-        return jsonify({"pair": []})
-    pair = random.sample(names, 2)
-    return jsonify({"pair": pair})
-
-
-@app.route("/api/opponent")
-def api_opponent():
-    scores = load_scores()
-    exclude = request.args.get("exclude", "")
-    candidates = [n for n in scores.keys() if n != exclude]
-    if not candidates:
-        return jsonify({"opponent": None})
-    return jsonify({"opponent": random.choice(candidates)})
-
-
-@app.route("/api/vote", methods=["POST"])
-def api_vote():
-    scores = load_scores()
-    data = request.get_json()
-    winner, loser = data["winner"], data["loser"]
-    if winner not in scores or loser not in scores:
-        return jsonify({"error": "Unknown image."}), 400
-    record_vote(scores, winner, loser)
-    return jsonify({"ok": True})
-
-
-@app.route("/leaderboard")
-def leaderboard():
-    scores = load_scores()
-    ranked = sorted(
-        scores.items(), 
-        key=lambda kv: (kv[1]["wins"], -kv[1]["losses"]), 
-        reverse=True
-    )
-    return render_template_string(LEADERBOARD_TEMPLATE, ranked=ranked)
-
-
-@app.route("/admin-reset-secret")
-def reset_scores():
-    user_password = request.args.get("pwd", "")
-    
-    # Check if the entered password matches ADMIN_PASSWORD
-    if user_password != ADMIN_PASSWORD:
-        return "<h2 style='color:red; text-align:center; font-family:sans-serif;'>❌ Incorrect Password! Reset Denied.</h2><p style='text-align:center;'><a href='/leaderboard'>Back to Leaderboard</a></p>", 403
-
-    images = sorted(
-        f.name for f in IMAGE_DIR.glob("*")
-        if f.suffix.lower() in VALID_EXTENSIONS
-    )
-    fresh_scores = {
-        name: {"wins": 0, "losses": 0}
-        for name in images
-    }
-    save_scores(fresh_scores)
-    return redirect(url_for("index"))
-
-
-if __name__ == "__main__":
-    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    app.run(debug=True)
+      margin-bottom:0.4rem; border:1px solid rgba(255,255
