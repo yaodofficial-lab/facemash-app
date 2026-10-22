@@ -1,5 +1,5 @@
 """
-Facemash-style app: head-to-head image voting with shared counting across all voters.
+Facemash-style app: head-to-head voting with password-protected admin reset.
 
 Setup:
     pip install flask
@@ -17,6 +17,9 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template_string, request, redirect, url_for
 
 app = Flask(__name__)
+
+# --- CONFIGURATION ---
+ADMIN_PASSWORD = "brolx"  # Admin password set to brolx
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
@@ -104,7 +107,7 @@ PAGE_TEMPLATE = """
       display:flex; align-items:center; justify-content:center;
       font-weight:900; font-size:1.5rem; color:#ff9d4d; min-width:2.5rem;
     }
-    #status { margin-top:1.3rem; font-size:1rem; color:#ffd93d; min-height:1.2rem; font-weight:600; }
+    #status { margin-top:1.3rem; font-size:1rem; color:#999; min-height:1.2rem; }
     .nav-links {
       margin-top: 1.6rem;
       display: flex;
@@ -166,27 +169,17 @@ async function loadPair() {
 
 async function vote(winner, loser) {
   document.getElementById('status').innerText = 'Recording vote...';
-  const res = await fetch('/api/vote', {
+  await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({winner, loser})
   });
-  const data = await res.json();
-
-  if (data.finished) {
-    document.getElementById('status').innerText = '🎉 Voting complete! Redirecting to Leaderboard...';
-    setTimeout(() => {
-      window.location.href = '/leaderboard';
-    }, 800);
-    return;
-  }
-
   document.getElementById('status').innerText = '';
 
-  const oppRes = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
-  const oppData = await oppRes.json();
-  if (oppData.opponent) {
-    renderPair([winner, oppData.opponent]);
+  const res = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
+  const data = await res.json();
+  if (data.opponent) {
+    renderPair([winner, data.opponent]);
   } else {
     loadPair();
   }
@@ -210,6 +203,7 @@ LEADERBOARD_TEMPLATE = """
       margin:0; font-family: 'Segoe UI', system-ui, sans-serif;
       background: radial-gradient(circle at top, #1b1030 0%, #0a0612 55%, #050308 100%);
       color:#f5f5f7; text-align:center; min-height:100vh; padding:1.5rem 1rem 3rem;
+      position: relative;
     }
     .brand {
       font-size: clamp(1.8rem, 7vw, 2.6rem); font-weight:900; letter-spacing:0.06em;
@@ -301,6 +295,21 @@ LEADERBOARD_TEMPLATE = """
       font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
     }
 
+    /* Secret Reset Button */
+    a.secret-reset {
+      color: rgba(255, 255, 255, 0.15);
+      text-decoration: none;
+      font-size: 0.75rem;
+      display: inline-block;
+      margin-top: 2.5rem;
+      padding: 5px;
+      cursor: pointer;
+      transition: color 0.2s ease;
+    }
+    a.secret-reset:hover {
+      color: #ff4d8d;
+    }
+
     @media (max-width:420px) {
       .podium { gap:0.4rem; }
       .pod.p1 img { width:84px; height:84px; }
@@ -362,9 +371,24 @@ LEADERBOARD_TEMPLATE = """
     </div>
     {% endfor %}
   </div>
+  
   <div class="nav-links">
     <a class="link" href="/">⬅ Back to voting page</a>
   </div>
+
+  <!-- Secret password-protected reset button -->
+  <div>
+    <a class="secret-reset" onclick="triggerReset()">•</a>
+  </div>
+
+<script>
+function triggerReset() {
+  const pwd = prompt("Enter Admin Password to Reset Scores:");
+  if (pwd) {
+    window.location.href = "/admin-reset-secret?pwd=" + encodeURIComponent(pwd);
+  }
+}
+</script>
 </body>
 </html>
 """
@@ -403,17 +427,12 @@ def api_vote():
     if winner not in scores or loser not in scores:
         return jsonify({"error": "Unknown image."}), 400
     record_vote(scores, winner, loser)
-    
-    total_matches = sum(v["wins"] + v["losses"] for v in scores.values()) // 2
-    target_votes = len(scores)
-    finished = total_matches >= target_votes
-    return jsonify({"ok": True, "finished": finished})
+    return jsonify({"ok": True})
 
 
 @app.route("/leaderboard")
 def leaderboard():
     scores = load_scores()
-    # Simple sorting: Most wins first, then fewest losses as tiebreaker
     ranked = sorted(
         scores.items(), 
         key=lambda kv: (kv[1]["wins"], -kv[1]["losses"]), 
@@ -422,9 +441,14 @@ def leaderboard():
     return render_template_string(LEADERBOARD_TEMPLATE, ranked=ranked)
 
 
-# Admin reset endpoint (hidden from UI, only accessible if you directly visit /admin-reset-secret)
 @app.route("/admin-reset-secret")
 def reset_scores():
+    user_password = request.args.get("pwd", "")
+    
+    # Check if the entered password matches ADMIN_PASSWORD
+    if user_password != ADMIN_PASSWORD:
+        return "<h2 style='color:red; text-align:center; font-family:sans-serif;'>❌ Incorrect Password! Reset Denied.</h2><p style='text-align:center;'><a href='/leaderboard'>Back to Leaderboard</a></p>", 403
+
     images = sorted(
         f.name for f in IMAGE_DIR.glob("*")
         if f.suffix.lower() in VALID_EXTENSIONS
