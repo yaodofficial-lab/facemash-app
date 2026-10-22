@@ -115,7 +115,7 @@ PAGE_TEMPLATE = """
       display:flex; align-items:center; justify-content:center;
       font-weight:900; font-size:1.5rem; color:#ff9d4d; min-width:2.5rem;
     }
-    #status { margin-top:1.3rem; font-size:0.9rem; color:#999; min-height:1.2rem; }
+    #status { margin-top:1.3rem; font-size:1rem; color:#ffd93d; min-height:1.2rem; font-weight:600; }
     a.link {
       display:inline-block; margin-top:1.6rem; color:#ffd93d; text-decoration:none;
       font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
@@ -168,17 +168,27 @@ async function loadPair() {
 
 async function vote(winner, loser) {
   document.getElementById('status').innerText = 'Recording vote...';
-  await fetch('/api/vote', {
+  const res = await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({winner, loser})
   });
+  const data = await res.json();
+
+  if (data.finished) {
+    document.getElementById('status').innerText = '🎉 All images voted on! Loading Leaderboard...';
+    setTimeout(() => {
+      window.location.href = '/leaderboard';
+    }, 1000);
+    return;
+  }
+
   document.getElementById('status').innerText = '';
 
-  const res = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
-  const data = await res.json();
-  if (data.opponent) {
-    renderPair([winner, data.opponent]);
+  const oppRes = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
+  const oppData = await oppRes.json();
+  if (oppData.opponent) {
+    renderPair([winner, oppData.opponent]);
   } else {
     loadPair();
   }
@@ -386,7 +396,10 @@ def api_vote():
     if winner not in scores or loser not in scores:
         return jsonify({"error": "Unknown image."}), 400
     update_elo(scores, winner, loser)
-    return jsonify({"ok": True})
+    
+    # Check if every image has been voted on at least once
+    all_finished = all(v["wins"] + v["losses"] > 0 for v in scores.values())
+    return jsonify({"ok": True, "finished": all_finished})
 
 
 @app.route("/leaderboard")
