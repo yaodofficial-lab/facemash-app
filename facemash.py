@@ -1,5 +1,5 @@
 """
-Facemash-style app: head-to-head image voting with simple win/loss counting.
+Facemash-style app: head-to-head image voting with shared counting across all voters.
 
 Setup:
     pip install flask
@@ -116,10 +116,6 @@ PAGE_TEMPLATE = """
       color:#ffd93d; text-decoration:none;
       font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
     }
-    a.reset-link {
-      color:#ff4d8d; text-decoration:none;
-      font-weight:600; border-bottom:1px solid rgba(255,77,141,0.4); padding-bottom:2px;
-    }
     @media (max-width: 480px) {
       .arena { gap:0.7rem; }
       .vs { min-width:1.2rem; font-size:1rem; }
@@ -133,7 +129,6 @@ PAGE_TEMPLATE = """
   <div id="status"></div>
   <div class="nav-links">
     <a class="link" href="/leaderboard">🏆 View Leaderboard</a>
-    <a class="reset-link" href="/reset" onclick="return confirm('Are you sure you want to reset all votes and scores?');">🔄 Start Over</a>
   </div>
 
 <script>
@@ -305,10 +300,6 @@ LEADERBOARD_TEMPLATE = """
       color:#ffd93d; text-decoration:none;
       font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
     }
-    a.reset-link {
-      color:#ff4d8d; text-decoration:none;
-      font-weight:600; border-bottom:1px solid rgba(255,77,141,0.4); padding-bottom:2px;
-    }
 
     @media (max-width:420px) {
       .podium { gap:0.4rem; }
@@ -373,7 +364,6 @@ LEADERBOARD_TEMPLATE = """
   </div>
   <div class="nav-links">
     <a class="link" href="/">⬅ Back to voting page</a>
-    <a class="reset-link" href="/reset" onclick="return confirm('Are you sure you want to reset all votes and scores?');">🔄 Start Over</a>
   </div>
 </body>
 </html>
@@ -432,7 +422,8 @@ def leaderboard():
     return render_template_string(LEADERBOARD_TEMPLATE, ranked=ranked)
 
 
-@app.route("/reset")
+# Admin reset endpoint (hidden from UI, only accessible if you directly visit /admin-reset-secret)
+@app.route("/admin-reset-secret")
 def reset_scores():
     images = sorted(
         f.name for f in IMAGE_DIR.glob("*")
