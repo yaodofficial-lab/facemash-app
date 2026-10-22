@@ -1,25 +1,26 @@
 """
-Facemash-style app: head-to-head voting with auto-redirect and password-protected admin reset.
+Facemash-style app: head-to-head voting with auto-redirect, simple win/loss counting, 
+and password-protected admin reset.
 
 Setup:
-    pip install flask
+    pip install flask gunicorn
     mkdir static/images
     # Place your image files (.jpg, .jpeg, .png, .webp) inside static/images/
     python facemash.py
-    # Open http://127.0.0.1:5000
 
 Data is stored in scores.json (created automatically).
 """
 
 import json
 import random
+import os
 from pathlib import Path
 from flask import Flask, jsonify, render_template_string, request, redirect, url_for
 
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-ADMIN_PASSWORD = "brolx"  # Admin password
+ADMIN_PASSWORD = "brolx"  # Admin password for resetting scores
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
@@ -291,4 +292,188 @@ LEADERBOARD_TEMPLATE = """
     .row {
       display:flex; align-items:center; gap:0.8rem; padding:0.65rem 0.7rem;
       text-align:left; border-radius:12px; background:rgba(255,255,255,0.025);
-      margin-bottom:0.4rem; border:1px solid rgba(255,255
+      margin-bottom:0.4rem; border:1px solid rgba(255,255,255,0.05);
+      transition: background 0.15s ease;
+    }
+    .row:hover { background:rgba(255,255,255,0.05); }
+    .rank { width:1.8rem; font-weight:800; color:#777; flex-shrink:0; font-size:0.9rem; }
+    .row img {
+      width:46px; height:46px; object-fit:cover; border-radius:10px; flex-shrink:0;
+      border:1px solid rgba(255,255,255,0.08);
+    }
+    .name { flex:1; font-size:0.88rem; word-break:break-word; }
+    .stats { font-size:0.78rem; color:#999; white-space:nowrap; text-align:right; }
+    .wins-count { font-weight:800; color:#ff9d4d; display:block; font-size:0.85rem; }
+    .wl { color:#777; }
+
+    .nav-links {
+      margin-top: 2rem;
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      align-items: center;
+    }
+    a.link {
+      color:#ffd93d; text-decoration:none;
+      font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
+    }
+    a.reset-link {
+      color:#ff4d8d; text-decoration:none;
+      font-weight:600; border-bottom:1px solid rgba(255,77,141,0.4); padding-bottom:2px;
+      cursor: pointer;
+    }
+
+    @media (max-width:420px) {
+      .podium { gap:0.4rem; }
+      .pod.p1 img { width:84px; height:84px; }
+      .pod.p2 img, .pod.p3 img { width:64px; height:64px; }
+      .pod .pname { max-width:80px; font-size:0.72rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="brand">Facemash</div>
+  <div class="subhead">Leaderboard</div>
+
+  {% if ranked|length >= 1 %}
+  <div class="podium">
+    {% if ranked|length >= 2 %}
+    {% set n2, s2 = ranked[1] %}
+    <div class="pod p2">
+      <div class="medal">🥈</div>
+      <div class="avatar-wrap"><img src="/static/images/{{ n2 }}"></div>
+      <div class="pname">{{ n2 }}</div>
+      <div class="pscore">{{ s2.wins }} Wins</div>
+      <div class="stand">2</div>
+    </div>
+    {% endif %}
+
+    {% set n1, s1 = ranked[0] %}
+    <div class="pod p1">
+      <div class="medal">🥇</div>
+      <div class="avatar-wrap"><img src="/static/images/{{ n1 }}"></div>
+      <div class="pname">{{ n1 }}</div>
+      <div class="pscore">{{ s1.wins }} Wins</div>
+      <div class="stand">1</div>
+    </div>
+
+    {% if ranked|length >= 3 %}
+    {% set n3, s3 = ranked[2] %}
+    <div class="pod p3">
+      <div class="medal">🥉</div>
+      <div class="avatar-wrap"><img src="/static/images/{{ n3 }}"></div>
+      <div class="pname">{{ n3 }}</div>
+      <div class="pscore">{{ s3.wins }} Wins</div>
+      <div class="stand">3</div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="board">
+    {% if ranked|length > 3 %}<div class="board-title">Full Rankings</div>{% endif %}
+    {% for name, s in ranked %}
+    <div class="row">
+      <div class="rank">#{{ loop.index }}</div>
+      <img src="/static/images/{{ name }}">
+      <div class="name">{{ name }}</div>
+      <div class="stats">
+        <span class="wins-count">{{ s.wins }} Wins</span>
+        <span class="wl">{{ s.losses }} Losses</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  
+  <div class="nav-links">
+    <a class="link" href="/">⬅ Back to voting page</a>
+    <a class="reset-link" onclick="triggerReset()">⚙️ Admin Reset</a>
+  </div>
+
+<script>
+function triggerReset() {
+  const pwd = prompt("Enter Admin Password to Reset Scores:");
+  if (pwd) {
+    window.location.href = "/admin-reset-secret?pwd=" + encodeURIComponent(pwd);
+  }
+}
+</script>
+</body>
+</html>
+"""
+
+
+@app.route("/")
+def index():
+    return render_template_string(PAGE_TEMPLATE)
+
+
+@app.route("/api/pair")
+def api_pair():
+    scores = load_scores()
+    names = list(scores.keys())
+    if len(names) < 2:
+        return jsonify({"pair": []})
+    pair = random.sample(names, 2)
+    return jsonify({"pair": pair})
+
+
+@app.route("/api/opponent")
+def api_opponent():
+    scores = load_scores()
+    exclude = request.args.get("exclude", "")
+    candidates = [n for n in scores.keys() if n != exclude]
+    if not candidates:
+        return jsonify({"opponent": None})
+    return jsonify({"opponent": random.choice(candidates)})
+
+
+@app.route("/api/vote", methods=["POST"])
+def api_vote():
+    scores = load_scores()
+    data = request.get_json()
+    winner, loser = data["winner"], data["loser"]
+    if winner not in scores or loser not in scores:
+        return jsonify({"error": "Unknown image."}), 400
+    record_vote(scores, winner, loser)
+    
+    total_matches = sum(v["wins"] + v["losses"] for v in scores.values()) // 2
+    target_votes = len(scores)
+    finished = total_matches >= target_votes
+    
+    return jsonify({"ok": True, "finished": finished})
+
+
+@app.route("/leaderboard")
+def leaderboard():
+    scores = load_scores()
+    ranked = sorted(
+        scores.items(), 
+        key=lambda kv: (kv[1]["wins"], -kv[1]["losses"]), 
+        reverse=True
+    )
+    return render_template_string(LEADERBOARD_TEMPLATE, ranked=ranked)
+
+
+@app.route("/admin-reset-secret")
+def reset_scores():
+    user_password = request.args.get("pwd", "")
+    if user_password != ADMIN_PASSWORD:
+        return "<h2 style='color:red; text-align:center; font-family:sans-serif; margin-top:3rem;'>❌ Incorrect Password! Reset Denied.</h2><p style='text-align:center;'><a href='/leaderboard'>Back to Leaderboard</a></p>", 403
+
+    images = sorted(
+        f.name for f in IMAGE_DIR.glob("*")
+        if f.suffix.lower() in VALID_EXTENSIONS
+    )
+    fresh_scores = {
+        name: {"wins": 0, "losses": 0}
+        for name in images
+    }
+    save_scores(fresh_scores)
+    return redirect(url_for("index"))
+
+
+if __name__ == "__main__":
+    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
