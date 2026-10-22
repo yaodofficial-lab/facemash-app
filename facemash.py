@@ -14,7 +14,7 @@ Data is stored in scores.json (created automatically).
 import json
 import random
 from pathlib import Path
-from flask import Flask, jsonify, render_template_string, request
+from flask import Flask, jsonify, render_template_string, request, redirect, url_for
 
 app = Flask(__name__)
 
@@ -116,9 +116,20 @@ PAGE_TEMPLATE = """
       font-weight:900; font-size:1.5rem; color:#ff9d4d; min-width:2.5rem;
     }
     #status { margin-top:1.3rem; font-size:1rem; color:#ffd93d; min-height:1.2rem; font-weight:600; }
+    .nav-links {
+      margin-top: 1.6rem;
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      align-items: center;
+    }
     a.link {
-      display:inline-block; margin-top:1.6rem; color:#ffd93d; text-decoration:none;
+      color:#ffd93d; text-decoration:none;
       font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
+    }
+    a.reset-link {
+      color:#ff4d8d; text-decoration:none;
+      font-weight:600; border-bottom:1px solid rgba(255,77,141,0.4); padding-bottom:2px;
     }
     @media (max-width: 480px) {
       .arena { gap:0.7rem; }
@@ -131,7 +142,10 @@ PAGE_TEMPLATE = """
   <div class="tagline">Who is the hottest?</div>
   <div class="arena" id="arena"></div>
   <div id="status"></div>
-  <p><a class="link" href="/leaderboard">🏆 View Leaderboard</a></p>
+  <div class="nav-links">
+    <a class="link" href="/leaderboard">🏆 View Leaderboard</a>
+    <a class="reset-link" href="/reset" onclick="return confirm('Are you sure you want to reset all votes and scores?');">🔄 Start Over</a>
+  </div>
 
 <script>
 function renderPair(pair) {
@@ -291,9 +305,20 @@ LEADERBOARD_TEMPLATE = """
     .elo { font-weight:800; color:#ff9d4d; display:block; font-size:0.85rem; }
     .wl { color:#777; }
 
+    .nav-links {
+      margin-top: 2rem;
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      align-items: center;
+    }
     a.link {
-      display:inline-block; margin-top:2rem; color:#ffd93d; text-decoration:none;
+      color:#ffd93d; text-decoration:none;
       font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
+    }
+    a.reset-link {
+      color:#ff4d8d; text-decoration:none;
+      font-weight:600; border-bottom:1px solid rgba(255,77,141,0.4); padding-bottom:2px;
     }
 
     @media (max-width:420px) {
@@ -357,7 +382,10 @@ LEADERBOARD_TEMPLATE = """
     </div>
     {% endfor %}
   </div>
-  <p><a class="link" href="/">⬅ Back to voting page</a></p>
+  <div class="nav-links">
+    <a class="link" href="/">⬅ Back to voting page</a>
+    <a class="reset-link" href="/reset" onclick="return confirm('Are you sure you want to reset all votes and scores?');">🔄 Start Over</a>
+  </div>
 </body>
 </html>
 """
@@ -397,12 +425,8 @@ def api_vote():
         return jsonify({"error": "Unknown image."}), 400
     update_elo(scores, winner, loser)
     
-    # Calculate total matches played across all items (since wins + losses = total matches recorded)
     total_matches = sum(v["wins"] + v["losses"] for v in scores.values()) // 2
-    
-    # Define how many total votes constitute a completed session (e.g., equal to the number of uploaded images)
     target_votes = len(scores)
-    
     finished = total_matches >= target_votes
     return jsonify({"ok": True, "finished": finished})
 
@@ -412,6 +436,21 @@ def leaderboard():
     scores = load_scores()
     ranked = sorted(scores.items(), key=lambda kv: kv[1]["elo"], reverse=True)
     return render_template_string(LEADERBOARD_TEMPLATE, ranked=ranked)
+
+
+@app.route("/reset")
+def reset_scores():
+    images = sorted(
+        f.name for f in IMAGE_DIR.glob("*")
+        if f.suffix.lower() in VALID_EXTENSIONS
+    )
+    # Reset all scores back to starting Elo with 0 wins/losses
+    fresh_scores = {
+        name: {"elo": STARTING_ELO, "wins": 0, "losses": 0}
+        for name in images
+    }
+    save_scores(fresh_scores)
+    return redirect(url_for("index"))
 
 
 if __name__ == "__main__":
