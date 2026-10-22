@@ -1,6 +1,6 @@
 """
-Facemash-style app: head-to-head voting with session-based auto-redirect control, 
-simple win/loss counting, and password-protected admin reset.
+Facemash-style app: head-to-head voting with auto-redirect, simple win/loss counting, 
+and password-protected admin reset.
 
 Setup:
     pip install flask gunicorn
@@ -137,7 +137,7 @@ PAGE_TEMPLATE = """
   <div class="arena" id="arena"></div>
   <div id="status"></div>
   <div class="nav-links">
-    <a class="link" href="/leaderboard" onclick="sessionStorage.removeItem('redirected');">🏆 View Leaderboard</a>
+    <a class="link" href="/leaderboard">🏆 View Leaderboard</a>
     <a class="reset-link" onclick="triggerReset()">⚙️ Admin Reset</a>
   </div>
 
@@ -183,9 +183,7 @@ async function vote(winner, loser) {
   });
   const data = await res.json();
 
-  // Check if target reached AND user hasn't already been auto-redirected in this session
-  if (data.finished && !sessionStorage.getItem('redirected')) {
-    sessionStorage.setItem('redirected', 'true');
+  if (data.finished) {
     document.getElementById('status').innerText = '🎉 All rounds complete! Redirecting to Leaderboard...';
     setTimeout(() => {
       window.location.href = '/leaderboard';
@@ -388,8 +386,7 @@ LEADERBOARD_TEMPLATE = """
   </div>
   
   <div class="nav-links">
-    <!-- Clicking this clears the redirect flag so they can vote again freely -->
-    <a class="link" href="/" onclick="sessionStorage.removeItem('redirected');">⬅ Back to voting page</a>
+    <a class="link" href="/">⬅ Back to voting page</a>
     <a class="reset-link" onclick="triggerReset()">⚙️ Admin Reset</a>
   </div>
 
