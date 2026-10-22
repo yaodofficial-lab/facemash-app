@@ -1,6 +1,6 @@
 """
-Facemash-style app: head-to-head voting with auto-redirect, simple win/loss counting, 
-and password-protected admin reset.
+Facemash-style app: endless head-to-head voting with simple win/loss counting, 
+production support, and password-protected admin reset (`brolx`).
 
 Setup:
     pip install flask gunicorn
@@ -108,7 +108,7 @@ PAGE_TEMPLATE = """
       display:flex; align-items:center; justify-content:center;
       font-weight:900; font-size:1.5rem; color:#ff9d4d; min-width:2.5rem;
     }
-    #status { margin-top:1.3rem; font-size:1.1rem; color:#ffd93d; min-height:1.2rem; font-weight:700; }
+    #status { margin-top:1.3rem; font-size:1.1rem; color:#999; min-height:1.2rem; }
     .nav-links {
       margin-top: 1.6rem;
       display: flex;
@@ -176,27 +176,17 @@ async function loadPair() {
 
 async function vote(winner, loser) {
   document.getElementById('status').innerText = 'Recording vote...';
-  const res = await fetch('/api/vote', {
+  await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({winner, loser})
   });
-  const data = await res.json();
-
-  if (data.finished) {
-    document.getElementById('status').innerText = '🎉 All rounds complete! Redirecting to Leaderboard...';
-    setTimeout(() => {
-      window.location.href = '/leaderboard';
-    }, 1000);
-    return;
-  }
-
   document.getElementById('status').innerText = '';
 
-  const oppRes = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
-  const oppData = await oppRes.json();
-  if (oppData.opponent) {
-    renderPair([winner, oppData.opponent]);
+  const res = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
+  const data = await res.json();
+  if (data.opponent) {
+    renderPair([winner, data.opponent]);
   } else {
     loadPair();
   }
@@ -436,12 +426,7 @@ def api_vote():
     if winner not in scores or loser not in scores:
         return jsonify({"error": "Unknown image."}), 400
     record_vote(scores, winner, loser)
-    
-    total_matches = sum(v["wins"] + v["losses"] for v in scores.values()) // 2
-    target_votes = len(scores)
-    finished = total_matches >= target_votes
-    
-    return jsonify({"ok": True, "finished": finished})
+    return jsonify({"ok": True})
 
 
 @app.route("/leaderboard")
