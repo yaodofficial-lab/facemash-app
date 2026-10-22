@@ -20,7 +20,7 @@ app = Flask(__name__)
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
-K_FACTOR = 32         # Elo sensitivity
+K_FACTOR = 32          # Elo sensitivity
 STARTING_ELO = 1200
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -46,11 +46,46 @@ def load_scores():
     # Drop entries for images that no longer exist on disk
     scores = {k: v for k, v in scores.items() if k in images}
     save_scores(scores)
+
+    # Keep voted_pairs.json in sync so deleted images don't block completion forever
+    image_set = set(images)
+    voted = load_voted_pairs()
+    pruned = {p for p in voted if p[0] in image_set and p[1] in image_set}
+    if pruned != voted:
+        save_voted_pairs(pruned)
+
     return scores
 
 
 def save_scores(scores):
     SCORES_FILE.write_text(json.dumps(scores, indent=2))
+
+
+VOTED_PAIRS_FILE = Path("voted_pairs.json")
+
+
+def load_voted_pairs():
+    if VOTED_PAIRS_FILE.exists():
+        return set(tuple(p) for p in json.loads(VOTED_PAIRS_FILE.read_text()))
+    return set()
+
+
+def save_voted_pairs(pairs):
+    VOTED_PAIRS_FILE.write_text(json.dumps([list(p) for p in pairs]))
+
+
+def pair_key(a, b):
+    return tuple(sorted([a, b]))
+
+
+def all_pairs_covered(names, voted):
+    if len(names) < 2:
+        return False
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            if pair_key(names[i], names[j]) not in voted:
+                return False
+    return True
 
 
 def expected_score(rating_a, rating_b):
@@ -72,92 +107,145 @@ PAGE_TEMPLATE = """
 <!doctype html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FACEMASH</title>
   <style>
-    * { box-sizing: border-box; }
-    body {
-      margin:0; font-family: 'Segoe UI', system-ui, sans-serif;
-      background: radial-gradient(circle at top, #1b1030 0%, #0a0612 60%, #050308 100%);
-      color:#f5f5f7; text-align:center; min-height:100vh; padding:1.5rem 1rem 3rem;
+    :root {
+      --bg1:#1b1030; --bg2:#0a0612; --bg3:#050308;
+      --pink:#ff4d8d; --orange:#ff9d4d; --gold:#ffd93d;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
     }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { height:100%; }
+    body {
+      margin:0; font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+      background: radial-gradient(circle at 50% 0%, var(--bg1) 0%, var(--bg2) 55%, var(--bg3) 100%);
+      background-attachment: fixed;
+      color:#f5f5f7; text-align:center;
+      padding: calc(1.6rem + env(safe-area-inset-top, 0px)) 1rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
+      overflow-x:hidden;
+    }
+    .glow {
+      position:fixed; top:-120px; left:50%; transform:translateX(-50%);
+      width:360px; height:360px; border-radius:50%;
+      background: radial-gradient(circle, rgba(255,77,141,0.25), transparent 70%);
+      filter: blur(10px); pointer-events:none; z-index:0;
+    }
+    .wrap { position:relative; z-index:1; }
     .brand {
-      font-size: clamp(2.2rem, 9vw, 3.2rem); font-weight:900; letter-spacing:0.06em;
-      margin: 0.5rem 0 0.2rem; background: linear-gradient(90deg,#ff4d8d,#ff9d4d,#ffd93d);
+      font-size: clamp(2.1rem, 9vw, 3.2rem); font-weight:900; letter-spacing:0.05em;
+      margin: 0.2rem 0 0.15rem; background: linear-gradient(90deg,var(--pink),var(--orange),var(--gold));
       -webkit-background-clip:text; background-clip:text; color:transparent;
-      text-transform:uppercase;
+      text-transform:uppercase; text-shadow: 0 0 40px rgba(255,77,141,0.25);
     }
     .tagline {
-      font-size: clamp(1rem, 4vw, 1.4rem); font-weight:600; color:#ddd;
-      margin: 0 0 1.2rem; letter-spacing:0.02em;
+      font-size: clamp(0.95rem, 4vw, 1.3rem); font-weight:600; color:#ddd;
+      margin: 0 0 0.4rem; letter-spacing:0.02em;
     }
+    .vote-count {
+      font-size:0.78rem; color:#888; margin-bottom:1.4rem; letter-spacing:0.04em;
+    }
+    .vote-count b { color:var(--gold); font-weight:700; }
+
     .arena {
-      display:flex; justify-content:center; align-items:stretch; gap:1.5rem;
-      margin-top:1rem; flex-wrap:wrap; max-width:960px; margin-left:auto; margin-right:auto;
+      display:flex; justify-content:center; align-items:stretch; gap:1rem;
+      margin-top:0.5rem; flex-wrap:wrap; max-width:760px; margin-left:auto; margin-right:auto;
+      transition: opacity 0.18s ease;
     }
+    .arena.fading { opacity:0.35; }
+
     .card {
-      cursor:pointer; border-radius:18px; overflow:hidden; position:relative;
-      flex:1 1 340px; max-width:440px; min-width:200px;
-      border:2px solid rgba(255,255,255,0.08);
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-      background:#151022;
+      cursor:pointer; border-radius:20px; overflow:hidden; position:relative;
+      flex:1 1 260px; max-width:340px; min-width:140px;
+      border:1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+      transition: transform 0.18s cubic-bezier(.2,.8,.2,1), border-color 0.18s ease, box-shadow 0.18s ease;
+      background: linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01));
+      backdrop-filter: blur(6px);
+      -webkit-user-select:none; user-select:none;
     }
-    .card:hover, .card:active {
-      transform: translateY(-4px) scale(1.02);
-      border-color:#ff4d8d;
-      box-shadow: 0 12px 30px rgba(255,77,141,0.35);
-    }
+    .card:hover { transform: translateY(-5px) scale(1.02); border-color:var(--pink); box-shadow: 0 16px 36px rgba(255,77,141,0.3); }
+    .card:active { transform: scale(0.97); border-color:var(--gold); }
     .card img {
       width:100%; aspect-ratio: 1 / 1; object-fit:cover; display:block;
+      pointer-events:none;
     }
+    .card .glint {
+      position:absolute; inset:0; background: linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.45) 100%);
+      pointer-events:none;
+    }
+    .card .pick-badge {
+      position:absolute; top:10px; right:10px; background:rgba(0,0,0,0.5);
+      border:1px solid rgba(255,255,255,0.25); color:#fff; font-size:0.68rem;
+      font-weight:700; letter-spacing:0.05em; padding:0.3rem 0.6rem; border-radius:999px;
+      backdrop-filter: blur(4px); text-transform:uppercase;
+    }
+
     .vs {
       display:flex; align-items:center; justify-content:center;
-      font-weight:900; font-size:1.5rem; color:#ff9d4d; min-width:2.5rem;
+      font-weight:900; font-size:1.1rem; color:var(--orange); min-width:2.2rem;
+      text-shadow: 0 0 16px rgba(255,157,77,0.5);
     }
-    #status { margin-top:1.3rem; font-size:0.9rem; color:#999; min-height:1.2rem; }
+
+    #status {
+      margin-top:1.1rem; font-size:0.85rem; color:#999; min-height:1.2rem;
+      transition: opacity 0.15s ease;
+    }
     a.link {
-      display:inline-block; margin-top:1.6rem; color:#ffd93d; text-decoration:none;
-      font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
+      display:inline-block; margin-top:1.6rem; color:var(--gold); text-decoration:none;
+      font-weight:700; font-size:0.95rem;
+      border:1px solid rgba(255,217,61,0.35); padding:0.55rem 1.3rem; border-radius:999px;
+      background:rgba(255,217,61,0.06); transition:0.15s ease;
     }
+    a.link:active { transform:scale(0.96); background:rgba(255,217,61,0.14); }
+
     @media (max-width: 480px) {
-      .arena { gap:0.7rem; }
-      .vs { min-width:1.2rem; font-size:1rem; }
+      .arena { gap:0.6rem; }
+      .vs { min-width:1.3rem; font-size:0.95rem; }
+      .card { max-width:46vw; }
     }
   </style>
 </head>
 <body>
-  <div class="brand">Facemash</div>
-  <div class="tagline">Who is the hottest?</div>
-  <div class="arena" id="arena"></div>
-  <div id="status"></div>
-  <p><a class="link" href="/leaderboard">🏆 View Leaderboard</a></p>
+  <div class="glow"></div>
+  <div class="wrap">
+    <div class="brand">Facemash</div>
+    <div class="tagline">Who is the winner?</div>
+    <div class="vote-count" id="voteCount"></div>
+    <div class="arena" id="arena"></div>
+    <div id="status"></div>
+    <p><a class="link" href="/leaderboard">🏆 View Leaderboard</a></p>
+  </div>
 
 <script>
+let voteTally = 0;
+
 function renderPair(pair) {
   const arena = document.getElementById('arena');
+  arena.classList.remove('fading');
   arena.innerHTML = '';
   if (!pair || pair.length < 2) {
     arena.innerHTML = '<p>Not enough images in the folder yet.</p>';
     return;
   }
-  const left = document.createElement('div');
-  left.className = 'card';
-  left.innerHTML = `<img src="/static/images/${pair[0]}">`;
-  left.onclick = () => vote(pair[0], pair[1]);
+
+  const makeCard = (img, other) => {
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = `<img src="/static/images/${img}"><div class="glint"></div><div class="pick-badge">Tap to pick</div>`;
+    div.onclick = () => vote(img, other);
+    return div;
+  };
 
   const vs = document.createElement('div');
   vs.className = 'vs';
   vs.textContent = 'VS';
 
-  const right = document.createElement('div');
-  right.className = 'card';
-  right.innerHTML = `<img src="/static/images/${pair[1]}">`;
-  right.onclick = () => vote(pair[1], pair[0]);
-
-  arena.appendChild(left);
+  arena.appendChild(makeCard(pair[0], pair[1]));
   arena.appendChild(vs);
-  arena.appendChild(right);
+  arena.appendChild(makeCard(pair[1], pair[0]));
 }
 
 async function loadPair() {
@@ -167,13 +255,25 @@ async function loadPair() {
 }
 
 async function vote(winner, loser) {
+  document.getElementById('arena').classList.add('fading');
   document.getElementById('status').innerText = 'Recording vote...';
-  await fetch('/api/vote', {
+
+  const voteRes = await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({winner, loser})
   });
+  const voteData = await voteRes.json();
+
+  voteTally++;
+  document.getElementById('voteCount').innerHTML = 'Votes cast this session: <b>' + voteTally + '</b>';
   document.getElementById('status').innerText = '';
+
+  if (voteData.complete) {
+    document.getElementById('status').innerText = 'All matchups done! Loading leaderboard...';
+    setTimeout(() => { window.location.href = '/leaderboard'; }, 900);
+    return;
+  }
 
   const res = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
   const data = await res.json();
@@ -194,103 +294,102 @@ LEADERBOARD_TEMPLATE = """
 <!doctype html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FACEMASH Leaderboard</title>
   <style>
-    * { box-sizing: border-box; }
+    :root {
+      --bg1:#1b1030; --bg2:#0a0612; --bg3:#050308;
+      --pink:#ff4d8d; --orange:#ff9d4d; --gold:#ffd93d;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
-      margin:0; font-family: 'Segoe UI', system-ui, sans-serif;
-      background: radial-gradient(circle at top, #1b1030 0%, #0a0612 55%, #050308 100%);
-      color:#f5f5f7; text-align:center; min-height:100vh; padding:1.5rem 1rem 3rem;
+      margin:0; font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+      background: radial-gradient(circle at 50% 0%, var(--bg1) 0%, var(--bg2) 55%, var(--bg3) 100%);
+      background-attachment: fixed;
+      color:#f5f5f7; text-align:center; min-height:100vh;
+      padding: calc(1.6rem + env(safe-area-inset-top, 0px)) 1rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
     }
     .brand {
-      font-size: clamp(1.8rem, 7vw, 2.6rem); font-weight:900; letter-spacing:0.06em;
-      margin: 0.5rem 0 0.1rem; background: linear-gradient(90deg,#ff4d8d,#ff9d4d,#ffd93d);
+      font-size: clamp(1.7rem, 7vw, 2.5rem); font-weight:900; letter-spacing:0.05em;
+      margin: 0.2rem 0 0.1rem; background: linear-gradient(90deg,var(--pink),var(--orange),var(--gold));
       -webkit-background-clip:text; background-clip:text; color:transparent;
       text-transform:uppercase;
     }
     .subhead {
-      font-size:1rem; font-weight:600; color:#bbb; margin-bottom:2rem;
-      letter-spacing:0.15em; text-transform:uppercase;
+      font-size:0.85rem; font-weight:700; color:#999; margin-bottom:2rem;
+      letter-spacing:0.18em; text-transform:uppercase;
     }
 
-    /* ---- Podium ---- */
     .podium {
       display:flex; justify-content:center; align-items:flex-end;
-      gap: 0.8rem; max-width:640px; margin: 0 auto 2.5rem;
+      gap: 0.7rem; max-width:640px; margin: 0 auto 2.5rem;
     }
     .pod {
       flex:1; display:flex; flex-direction:column; align-items:center;
-      animation: rise 0.6s ease both;
+      animation: rise 0.55s cubic-bezier(.2,.8,.2,1) both;
     }
-    .pod.p1 { order:2; }
-    .pod.p2 { order:1; }
-    .pod.p3 { order:3; }
-    @keyframes rise {
-      from { opacity:0; transform: translateY(24px); }
-      to   { opacity:1; transform: translateY(0); }
-    }
-    .pod .medal { font-size:1.6rem; margin-bottom:0.3rem; }
-    .pod .avatar-wrap {
-      position:relative; border-radius:50%; padding:3px;
-    }
-    .pod.p1 .avatar-wrap { background: linear-gradient(135deg,#ffd93d,#ff9d4d); }
+    .pod.p1 { order:2; } .pod.p2 { order:1; } .pod.p3 { order:3; }
+    .pod.p2 { animation-delay: 0.05s; } .pod.p3 { animation-delay: 0.1s; }
+    @keyframes rise { from { opacity:0; transform: translateY(26px); } to { opacity:1; transform: translateY(0); } }
+
+    .pod .medal { font-size:1.5rem; margin-bottom:0.25rem; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.5)); }
+    .pod .avatar-wrap { border-radius:50%; padding:3px; }
+    .pod.p1 .avatar-wrap { background: linear-gradient(135deg,var(--gold),var(--orange)); box-shadow:0 0 24px rgba(255,217,61,0.35); }
     .pod.p2 .avatar-wrap { background: linear-gradient(135deg,#d8d8e0,#9a9aa8); }
     .pod.p3 .avatar-wrap { background: linear-gradient(135deg,#e0a370,#a5673a); }
-    .pod img {
-      display:block; border-radius:50%; object-fit:cover; background:#151022;
-      border:3px solid #0a0612;
-    }
-    .pod.p1 img { width:104px; height:104px; }
-    .pod.p2 img { width:80px; height:80px; }
-    .pod.p3 img { width:80px; height:80px; }
+    .pod img { display:block; border-radius:50%; object-fit:cover; background:#151022; border:3px solid #0a0612; }
+    .pod.p1 img { width:100px; height:100px; }
+    .pod.p2 img, .pod.p3 img { width:76px; height:76px; }
     .pod .pname {
-      margin-top:0.6rem; font-size:0.82rem; font-weight:600; max-width:110px;
+      margin-top:0.55rem; font-size:0.8rem; font-weight:600; max-width:108px;
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
     }
-    .pod .pelo { font-size:0.78rem; color:#ff9d4d; font-weight:700; margin-top:0.15rem; }
+    .pod .pelo { font-size:0.76rem; color:var(--orange); font-weight:700; margin-top:0.1rem; }
     .pod .stand {
-      margin-top:0.7rem; width:100%; border-radius:10px 10px 0 0;
+      margin-top:0.65rem; width:100%; border-radius:10px 10px 0 0;
       display:flex; align-items:flex-start; justify-content:center;
       font-weight:900; color:rgba(255,255,255,0.85); padding-top:0.4rem;
     }
-    .pod.p1 .stand { height:78px; background:linear-gradient(180deg,#ffd93d33,#ffd93d0d); font-size:1.4rem; }
-    .pod.p2 .stand { height:54px; background:linear-gradient(180deg,#d8d8e033,#d8d8e00d); font-size:1.2rem; }
-    .pod.p3 .stand { height:38px; background:linear-gradient(180deg,#e0a37033,#e0a3700d); font-size:1.2rem; }
+    .pod.p1 .stand { height:72px; background:linear-gradient(180deg,#ffd93d38,#ffd93d08); font-size:1.3rem; }
+    .pod.p2 .stand { height:50px; background:linear-gradient(180deg,#d8d8e038,#d8d8e008); font-size:1.1rem; }
+    .pod.p3 .stand { height:36px; background:linear-gradient(180deg,#e0a37038,#e0a37008); font-size:1.1rem; }
 
-    /* ---- Rest of the board ---- */
     .board { max-width:520px; margin:0 auto; }
     .board-title {
-      text-align:left; font-size:0.78rem; letter-spacing:0.1em; text-transform:uppercase;
+      text-align:left; font-size:0.74rem; letter-spacing:0.12em; text-transform:uppercase;
       color:#777; margin:0 0 0.6rem 0.4rem; font-weight:700;
     }
     .row {
-      display:flex; align-items:center; gap:0.8rem; padding:0.65rem 0.7rem;
-      text-align:left; border-radius:12px; background:rgba(255,255,255,0.025);
+      display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0.65rem;
+      text-align:left; border-radius:14px; background:rgba(255,255,255,0.025);
       margin-bottom:0.4rem; border:1px solid rgba(255,255,255,0.05);
-      transition: background 0.15s ease;
+      transition: background 0.15s ease, transform 0.15s ease;
     }
-    .row:hover { background:rgba(255,255,255,0.05); }
-    .rank { width:1.8rem; font-weight:800; color:#777; flex-shrink:0; font-size:0.9rem; }
+    .row:active { transform: scale(0.985); background:rgba(255,255,255,0.05); }
+    .rank { width:1.7rem; font-weight:800; color:#777; flex-shrink:0; font-size:0.85rem; }
     .row img {
-      width:46px; height:46px; object-fit:cover; border-radius:10px; flex-shrink:0;
+      width:42px; height:42px; object-fit:cover; border-radius:10px; flex-shrink:0;
       border:1px solid rgba(255,255,255,0.08);
     }
-    .name { flex:1; font-size:0.88rem; word-break:break-word; }
-    .stats { font-size:0.78rem; color:#999; white-space:nowrap; text-align:right; }
-    .elo { font-weight:800; color:#ff9d4d; display:block; font-size:0.85rem; }
+    .name { flex:1; font-size:0.84rem; word-break:break-word; }
+    .stats { font-size:0.74rem; color:#999; white-space:nowrap; text-align:right; }
+    .elo { font-weight:800; color:var(--orange); display:block; font-size:0.82rem; }
     .wl { color:#777; }
 
     a.link {
-      display:inline-block; margin-top:2rem; color:#ffd93d; text-decoration:none;
-      font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
+      display:inline-block; margin-top:2rem; color:var(--gold); text-decoration:none;
+      font-weight:700; font-size:0.9rem;
+      border:1px solid rgba(255,217,61,0.35); padding:0.5rem 1.2rem; border-radius:999px;
+      background:rgba(255,217,61,0.06);
     }
+    a.link:active { transform:scale(0.96); }
 
     @media (max-width:420px) {
-      .podium { gap:0.4rem; }
-      .pod.p1 img { width:84px; height:84px; }
-      .pod.p2 img, .pod.p3 img { width:64px; height:64px; }
-      .pod .pname { max-width:80px; font-size:0.72rem; }
+      .podium { gap:0.35rem; }
+      .pod.p1 img { width:80px; height:80px; }
+      .pod.p2 img, .pod.p3 img { width:60px; height:60px; }
+      .pod .pname { max-width:76px; font-size:0.7rem; }
     }
   </style>
 </head>
@@ -347,7 +446,7 @@ LEADERBOARD_TEMPLATE = """
     </div>
     {% endfor %}
   </div>
-  <p><a class="link" href="/">⬅ Back to voting page</a></p>
+  <p><a class="link" href="/">⬅ Back to voting</a></p>
 </body>
 </html>
 """
@@ -386,7 +485,26 @@ def api_vote():
     if winner not in scores or loser not in scores:
         return jsonify({"error": "Unknown image."}), 400
     update_elo(scores, winner, loser)
-    return jsonify({"ok": True})
+
+    voted = load_voted_pairs()
+    voted.add(pair_key(winner, loser))
+    save_voted_pairs(voted)
+
+    complete = all_pairs_covered(list(scores.keys()), voted)
+    return jsonify({"ok": True, "complete": complete})
+
+
+@app.route("/api/progress")
+def api_progress():
+    scores = load_scores()
+    voted = load_voted_pairs()
+    names = list(scores.keys())
+    total_possible = len(names) * (len(names) - 1) // 2
+    return jsonify({
+        "voted": len(voted),
+        "total": total_possible,
+        "complete": all_pairs_covered(names, voted),
+    })
 
 
 @app.route("/leaderboard")
