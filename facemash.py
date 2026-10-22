@@ -1,5 +1,5 @@
 """
-Facemash-style app: head-to-head image voting with Elo-based ranking.
+Facemash-style app: head-to-head image voting with simple win/loss counting.
 
 Setup:
     pip install flask
@@ -20,13 +20,11 @@ app = Flask(__name__)
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
-K_FACTOR = 32         # Elo sensitivity
-STARTING_ELO = 1200
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def load_scores():
-    """Load existing Elo scores, or initialize new ones from images on disk."""
+    """Load existing vote counts, or initialize new ones from images on disk."""
     images = sorted(
         f.name for f in IMAGE_DIR.glob("*")
         if f.suffix.lower() in VALID_EXTENSIONS
@@ -41,7 +39,7 @@ def load_scores():
         scores = json.loads(SCORES_FILE.read_text())
 
     for name in images:
-        scores.setdefault(name, {"elo": STARTING_ELO, "wins": 0, "losses": 0})
+        scores.setdefault(name, {"wins": 0, "losses": 0})
 
     # Drop entries for images that no longer exist on disk
     scores = {k: v for k, v in scores.items() if k in images}
@@ -53,16 +51,7 @@ def save_scores(scores):
     SCORES_FILE.write_text(json.dumps(scores, indent=2))
 
 
-def expected_score(rating_a, rating_b):
-    return 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
-
-
-def update_elo(scores, winner, loser):
-    r_w, r_l = scores[winner]["elo"], scores[loser]["elo"]
-    e_w = expected_score(r_w, r_l)
-    e_l = expected_score(r_l, r_w)
-    scores[winner]["elo"] = round(r_w + K_FACTOR * (1 - e_w), 1)
-    scores[loser]["elo"] = round(r_l + K_FACTOR * (0 - e_l), 1)
+def record_vote(scores, winner, loser):
     scores[winner]["wins"] += 1
     scores[loser]["losses"] += 1
     save_scores(scores)
@@ -272,7 +261,7 @@ LEADERBOARD_TEMPLATE = """
       margin-top:0.6rem; font-size:0.82rem; font-weight:600; max-width:110px;
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
     }
-    .pod .pelo { font-size:0.78rem; color:#ff9d4d; font-weight:700; margin-top:0.15rem; }
+    .pod .pscore { font-size:0.78rem; color:#ff9d4d; font-weight:700; margin-top:0.15rem; }
     .pod .stand {
       margin-top:0.7rem; width:100%; border-radius:10px 10px 0 0;
       display:flex; align-items:flex-start; justify-content:center;
@@ -302,7 +291,7 @@ LEADERBOARD_TEMPLATE = """
     }
     .name { flex:1; font-size:0.88rem; word-break:break-word; }
     .stats { font-size:0.78rem; color:#999; white-space:nowrap; text-align:right; }
-    .elo { font-weight:800; color:#ff9d4d; display:block; font-size:0.85rem; }
+    .wins-count { font-weight:800; color:#ff9d4d; display:block; font-size:0.85rem; }
     .wl { color:#777; }
 
     .nav-links {
@@ -341,7 +330,7 @@ LEADERBOARD_TEMPLATE = """
       <div class="medal">🥈</div>
       <div class="avatar-wrap"><img src="/static/images/{{ n2 }}"></div>
       <div class="pname">{{ n2 }}</div>
-      <div class="pelo">{{ s2.elo }}</div>
+      <div class="pscore">{{ s2.wins }} Wins</div>
       <div class="stand">2</div>
     </div>
     {% endif %}
@@ -351,7 +340,7 @@ LEADERBOARD_TEMPLATE = """
       <div class="medal">🥇</div>
       <div class="avatar-wrap"><img src="/static/images/{{ n1 }}"></div>
       <div class="pname">{{ n1 }}</div>
-      <div class="pelo">{{ s1.elo }}</div>
+      <div class="pscore">{{ s1.wins }} Wins</div>
       <div class="stand">1</div>
     </div>
 
@@ -361,7 +350,7 @@ LEADERBOARD_TEMPLATE = """
       <div class="medal">🥉</div>
       <div class="avatar-wrap"><img src="/static/images/{{ n3 }}"></div>
       <div class="pname">{{ n3 }}</div>
-      <div class="pelo">{{ s3.elo }}</div>
+      <div class="pscore">{{ s3.wins }} Wins</div>
       <div class="stand">3</div>
     </div>
     {% endif %}
@@ -376,8 +365,8 @@ LEADERBOARD_TEMPLATE = """
       <img src="/static/images/{{ name }}">
       <div class="name">{{ name }}</div>
       <div class="stats">
-        <span class="elo">{{ s.elo }}</span>
-        <span class="wl">{{ s.wins }}W / {{ s.losses }}L</span>
+        <span class="wins-count">{{ s.wins }} Wins</span>
+        <span class="wl">{{ s.losses }} Losses</span>
       </div>
     </div>
     {% endfor %}
@@ -423,7 +412,7 @@ def api_vote():
     winner, loser = data["winner"], data["loser"]
     if winner not in scores or loser not in scores:
         return jsonify({"error": "Unknown image."}), 400
-    update_elo(scores, winner, loser)
+    record_vote(scores, winner, loser)
     
     total_matches = sum(v["wins"] + v["losses"] for v in scores.values()) // 2
     target_votes = len(scores)
@@ -434,7 +423,12 @@ def api_vote():
 @app.route("/leaderboard")
 def leaderboard():
     scores = load_scores()
-    ranked = sorted(scores.items(), key=lambda kv: kv[1]["elo"], reverse=True)
+    # Simple sorting: Most wins first, then fewest losses as tiebreaker
+    ranked = sorted(
+        scores.items(), 
+        key=lambda kv: (kv[1]["wins"], -kv[1]["losses"]), 
+        reverse=True
+    )
     return render_template_string(LEADERBOARD_TEMPLATE, ranked=ranked)
 
 
@@ -444,9 +438,8 @@ def reset_scores():
         f.name for f in IMAGE_DIR.glob("*")
         if f.suffix.lower() in VALID_EXTENSIONS
     )
-    # Reset all scores back to starting Elo with 0 wins/losses
     fresh_scores = {
-        name: {"elo": STARTING_ELO, "wins": 0, "losses": 0}
+        name: {"wins": 0, "losses": 0}
         for name in images
     }
     save_scores(fresh_scores)
