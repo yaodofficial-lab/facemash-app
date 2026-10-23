@@ -1,5 +1,5 @@
 """
-Facemash-style app: head-to-head voting with recursive image loading, 
+Facemash-style app: head-to-head voting with URL-encoded image paths, recursive loading, 
 session-based round redirects, shared global win/loss counting, and password-protected admin reset.
 
 Setup:
@@ -158,9 +158,14 @@ function renderPair(pair) {
     arena.innerHTML = '<p>Not enough images in the folder yet.</p>';
     return;
   }
+  
+  // Encode URI component safely handles spaces and special characters in filenames
+  const leftImg = pair[0].split('/').map(encodeURIComponent).join('/');
+  const rightImg = pair[1].split('/').map(encodeURIComponent).join('/');
+
   const left = document.createElement('div');
   left.className = 'card';
-  left.innerHTML = `<img src="/static/images/${pair[0]}">`;
+  left.innerHTML = `<img src="/static/images/${leftImg}">`;
   left.onclick = () => vote(pair[0], pair[1]);
 
   const vs = document.createElement('div');
@@ -169,7 +174,7 @@ function renderPair(pair) {
 
   const right = document.createElement('div');
   right.className = 'card';
-  right.innerHTML = `<img src="/static/images/${pair[1]}">`;
+  right.innerHTML = `<img src="/static/images/${rightImg}">`;
   right.onclick = () => vote(pair[1], pair[0]);
 
   arena.appendChild(left);
@@ -214,7 +219,6 @@ async function vote(winner, loser) {
   const oppRes = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
   const oppData = await oppRes.json();
   if (oppData.opponent) {
-    // Randomize whether winner goes left or right for smooth flow
     const nextPair = Math.random() < 0.5 ? [winner, oppData.opponent] : [oppData.opponent, winner];
     renderPair(nextPair);
   } else {
