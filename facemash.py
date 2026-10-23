@@ -5,7 +5,7 @@ shared global win/loss counting, and password-protected admin reset.
 Setup:
     pip install flask gunicorn
     mkdir static/images
-    # Place your image files (.jpg, .jpeg, .png, .webp) inside static/images/
+    # Place your image files (.jpg, .jpeg, .png, .webp, .jfif, .heic, etc.) inside static/images/
     python facemash.py
 
 Data is stored in scores.json (created automatically).
@@ -24,7 +24,8 @@ ADMIN_PASSWORD = "brolx"  # Admin password for resetting scores
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
-VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+# Expanded extensions to ensure no uploaded photo format is missed (.jfif, .heic, etc.)
+VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".jfif", ".heic", ".heif", ".gif", ".avif", ".bmp"}
 
 
 def load_scores():
@@ -35,7 +36,7 @@ def load_scores():
     )
     if not images:
         raise RuntimeError(
-            f"No images found in {IMAGE_DIR}/ — place your image files (jpg, png, webp) there."
+            f"No images found in {IMAGE_DIR}/ — place your image files (jpg, png, webp, jfif, heic) there."
         )
 
     scores = {}
@@ -153,7 +154,7 @@ function renderPair(pair) {
   }
   const left = document.createElement('div');
   left.className = 'card';
-  left.innerHTML = `<img src="/static/images/${pair[0]}">`;
+  left.innerHTML = `<img src="/static/images/${encodeURIComponent(pair[0])}">`;
   left.onclick = () => vote(pair[0], pair[1]);
 
   const vs = document.createElement('div');
@@ -162,7 +163,7 @@ function renderPair(pair) {
 
   const right = document.createElement('div');
   right.className = 'card';
-  right.innerHTML = `<img src="/static/images/${pair[1]}">`;
+  right.innerHTML = `<img src="/static/images/${encodeURIComponent(pair[1])}">`;
   right.onclick = () => vote(pair[1], pair[0]);
 
   arena.appendChild(left);
@@ -350,7 +351,7 @@ LEADERBOARD_TEMPLATE = """
     {% set n2, s2 = ranked[1] %}
     <div class="pod p2">
       <div class="medal">🥈</div>
-      <div class="avatar-wrap"><img src="/static/images/{{ n2 }}"></div>
+      <div class="avatar-wrap"><img src="{{ url_for('static', filename='images/' + n2) }}"></div>
       <div class="pname">{{ n2 }}</div>
       <div class="pscore">{{ s2.wins }} Wins</div>
       <div class="stand">2</div>
@@ -360,7 +361,7 @@ LEADERBOARD_TEMPLATE = """
     {% set n1, s1 = ranked[0] %}
     <div class="pod p1">
       <div class="medal">🥇</div>
-      <div class="avatar-wrap"><img src="/static/images/{{ n1 }}"></div>
+      <div class="avatar-wrap"><img src="{{ url_for('static', filename='images/' + n1) }}"></div>
       <div class="pname">{{ n1 }}</div>
       <div class="pscore">{{ s1.wins }} Wins</div>
       <div class="stand">1</div>
@@ -370,7 +371,7 @@ LEADERBOARD_TEMPLATE = """
     {% set n3, s3 = ranked[2] %}
     <div class="pod p3">
       <div class="medal">🥉</div>
-      <div class="avatar-wrap"><img src="/static/images/{{ n3 }}"></div>
+      <div class="avatar-wrap"><img src="{{ url_for('static', filename='images/' + n3) }}"></div>
       <div class="pname">{{ n3 }}</div>
       <div class="pscore">{{ s3.wins }} Wins</div>
       <div class="stand">3</div>
@@ -384,7 +385,7 @@ LEADERBOARD_TEMPLATE = """
     {% for name, s in ranked %}
     <div class="row">
       <div class="rank">#{{ loop.index }}</div>
-      <img src="/static/images/{{ name }}">
+      <img src="{{ url_for('static', filename='images/' + name) }}">
       <div class="name">{{ name }}</div>
       <div class="stats">
         <span class="wins-count">{{ s.wins }} Wins</span>
