@@ -11,6 +11,7 @@ Setup:
 Data is stored in scores.json (created automatically).
 """
 
+import itertools
 import json
 import random
 import os
@@ -24,6 +25,7 @@ ADMIN_PASSWORD = "brolx"  # Admin password for resetting scores
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
+QUEUE_FILE = Path("pair_queue.json")
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".jfif", ".heic", ".heif", ".gif", ".avif", ".bmp"}
 
 
@@ -60,6 +62,62 @@ def record_vote(scores, winner, loser):
     scores[winner]["wins"] += 1
     scores[loser]["losses"] += 1
     save_scores(scores)
+
+
+def all_unique_pairs(images):
+    """Every possible matchup, each exactly once — C(n, 2) total."""
+    return [list(p) for p in itertools.combinations(images, 2)]
+
+
+def fresh_queue(images):
+    queue = all_unique_pairs(images)
+    random.shuffle(queue)
+    return queue
+
+
+def load_queue(images):
+    """Load the round-robin queue, regenerating it if the image set changed
+    or the previous round is finished."""
+    state = None
+    if QUEUE_FILE.exists():
+        try:
+            state = json.loads(QUEUE_FILE.read_text())
+        except json.JSONDecodeError:
+            state = None
+
+    if not state or sorted(state.get("images", [])) != sorted(images) or not state.get("queue"):
+        queue = fresh_queue(images)
+        state = {"images": images, "queue": queue}
+        save_queue(state)
+
+    return state
+
+
+def save_queue(state):
+    QUEUE_FILE.write_text(json.dumps(state))
+
+
+def pop_pair(images, must_include=None):
+    """Remove and return one unused pair from the round-robin queue.
+    If must_include is given, prefer a pair containing that image
+    (used to keep a current winner on screen against a fresh opponent)."""
+    state = load_queue(images)
+    queue = state["queue"]
+
+    idx = 0
+    if must_include is not None:
+        found = next((i for i, p in enumerate(queue) if must_include in p), None)
+        if found is None:
+            # Current winner has already faced everyone this round —
+            # start a new round so it still gets fresh opponents.
+            queue = fresh_queue(images)
+            found = next((i for i, p in enumerate(queue) if must_include in p), 0)
+        idx = found
+
+    pair = queue.pop(idx)
+    state["queue"] = queue
+    save_queue(state)
+    return pair, len(all_unique_pairs(images))
 
 
 PAGE_TEMPLATE = """
@@ -185,7 +243,7 @@ function renderPair(pair) {
 async function loadPair() {
   const res = await fetch('/api/pair');
   const data = await res.json();
-  totalImages = data.total_images || 0;
+  totalImages = data.total_pairs || 0;
   renderPair(data.pair);
 }
 
@@ -437,19 +495,22 @@ def api_pair():
     scores = load_scores()
     names = list(scores.keys())
     if len(names) < 2:
-        return jsonify({"pair": [], "total_images": 0})
-    pair = random.sample(names, 2)
-    return jsonify({"pair": pair, "total_images": len(names)})
+        return jsonify({"pair": [], "total_images": 0, "total_pairs": 0})
+    pair, total_pairs = pop_pair(names)
+    random.shuffle(pair)
+    return jsonify({"pair": pair, "total_images": len(names), "total_pairs": total_pairs})
 
 
 @app.route("/api/opponent")
 def api_opponent():
     scores = load_scores()
-    exclude = request.args.get("exclude", "")
-    candidates = [n for n in scores.keys() if n != exclude]
-    if not candidates:
+    names = list(scores.keys())
+    winner = request.args.get("exclude", "")
+    if winner not in scores or len(names) < 2:
         return jsonify({"opponent": None})
-    return jsonify({"opponent": random.choice(candidates)})
+    pair, _ = pop_pair(names, must_include=winner)
+    opponent = pair[0] if pair[1] == winner else pair[1]
+    return jsonify({"opponent": opponent})
 
 
 @app.route("/api/vote", methods=["POST"])
@@ -490,6 +551,8 @@ def reset_scores():
         for name in images
     }
     save_scores(fresh_scores)
+    if QUEUE_FILE.exists():
+        QUEUE_FILE.unlink()
     return redirect(url_for("index"))
 
 
