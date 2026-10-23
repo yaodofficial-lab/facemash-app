@@ -1,15 +1,15 @@
 """
-Facemash Ultimate Edition
-- Smart image pairing with repetition prevention (recently seen tracking)
-- Recursive image loading with support for all formats and special characters
-- Session-based round auto-redirect & infinite continuous voting
-- Password-protected admin score reset (password: brolx)
-- Production-ready for cloud deployment (Render, Railway, Heroku)
+Facemash-style app: head-to-head voting with strict duplicate prevention, 
+URL-encoded image paths, recursive loading, session-based round redirects, 
+shared global win/loss counting, and password-protected admin reset.
 
 Setup:
     pip install flask gunicorn
     mkdir static/images
+    # Place your image files inside static/images/ (supports subfolders too!)
     python facemash.py
+
+Data is stored in scores.json (created automatically).
 """
 
 import json
@@ -21,18 +21,15 @@ from flask import Flask, jsonify, render_template_string, request, redirect, url
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-ADMIN_PASSWORD = "brolx"  # Admin password for score reset
+ADMIN_PASSWORD = "brolx"  # Admin password for resetting scores
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
-VALID_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".webp", 
-    ".jfif", ".heic", ".heif", ".gif", ".avif", ".bmp"
-}
+VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".jfif", ".heic", ".heif", ".gif", ".avif", ".bmp"}
 
 
 def load_scores():
-    """Load existing scores or initialize missing ones for all disk images."""
+    """Load existing vote counts, supporting recursive subfolders inside static/images."""
     images = sorted(
         str(f.relative_to(IMAGE_DIR)).replace("\\", "/")
         for f in IMAGE_DIR.glob("**/*")
@@ -40,33 +37,27 @@ def load_scores():
     )
     if not images:
         raise RuntimeError(
-            f"No valid images found in {IMAGE_DIR}/ — please add your image files there."
+            f"No images found in {IMAGE_DIR}/ — place your image files there."
         )
 
     scores = {}
     if SCORES_FILE.exists():
-        try:
-            scores = json.loads(SCORES_FILE.read_text())
-        except Exception:
-            scores = {}
+        scores = json.loads(SCORES_FILE.read_text())
 
-    # Ensure every image on disk has an entry
     for name in images:
         scores.setdefault(name, {"wins": 0, "losses": 0})
 
-    # Drop old entries for images deleted from disk
+    # Drop entries for images that no longer exist on disk
     scores = {k: v for k, v in scores.items() if k in images}
     save_scores(scores)
     return scores
 
 
 def save_scores(scores):
-    """Safely write scores to scores.json file."""
     SCORES_FILE.write_text(json.dumps(scores, indent=2))
 
 
 def record_vote(scores, winner, loser):
-    """Record win and loss for global persistence."""
     scores[winner]["wins"] += 1
     scores[loser]["losses"] += 1
     save_scores(scores)
@@ -81,89 +72,50 @@ PAGE_TEMPLATE = """
   <style>
     * { box-sizing: border-box; }
     body {
-      margin: 0; 
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      margin:0; font-family: 'Segoe UI', system-ui, sans-serif;
       background: radial-gradient(circle at top, #1b1030 0%, #0a0612 60%, #050308 100%);
-      color: #f5f5f7; 
-      text-align: center; 
-      min-height: 100vh; 
-      padding: 1.5rem 1rem 3rem;
+      color:#f5f5f7; text-align:center; min-height:100vh; padding:1.5rem 1rem 3rem;
     }
     .brand {
-      font-size: clamp(2.2rem, 9vw, 3.2rem); 
-      font-weight: 900; 
-      letter-spacing: 0.06em;
-      margin: 0.5rem 0 0.2rem; 
-      background: linear-gradient(90deg, #ff4d8d, #ff9d4d, #ffd93d);
-      -webkit-background-clip: text; 
-      background-clip: text; 
-      color: transparent;
-      text-transform: uppercase;
+      font-size: clamp(2.2rem, 9vw, 3.2rem); font-weight:900; letter-spacing:0.06em;
+      margin: 0.5rem 0 0.2rem; background: linear-gradient(90deg,#ff4d8d,#ff9d4d,#ffd93d);
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+      text-transform:uppercase;
     }
     .tagline {
-      font-size: clamp(1rem, 4vw, 1.4rem); 
-      font-weight: 600; 
-      color: #ddd;
-      margin: 0 0 1.2rem; 
-      letter-spacing: 0.02em;
+      font-size: clamp(1rem, 4vw, 1.4rem); font-weight:600; color:#ddd;
+      margin: 0 0 1.2rem; letter-spacing:0.02em;
     }
     .arena {
-      display: flex; 
-      justify-content: center; 
-      align-items: stretch; 
-      gap: 1.5rem;
-      margin-top: 1rem; 
-      flex-wrap: wrap; 
-      max-width: 960px; 
-      margin-left: auto; 
-      margin-right: auto;
+      display:flex; justify-content:center; align-items:stretch; gap:1.5rem;
+      margin-top:1rem; flex-wrap:wrap; max-width:960px; margin-left:auto; margin-right:auto;
       transition: opacity 0.15s ease;
     }
     .arena.loading {
       pointer-events: none;
-      opacity: 0.6;
+      opacity: 0.5;
     }
     .card {
-      cursor: pointer; 
-      border-radius: 18px; 
-      overflow: hidden; 
-      position: relative;
-      flex: 1 1 340px; 
-      max-width: 440px; 
-      min-width: 200px;
-      border: 2px solid rgba(255, 255, 255, 0.08);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      cursor:pointer; border-radius:18px; overflow:hidden; position:relative;
+      flex:1 1 340px; max-width:440px; min-width:200px;
+      border:2px solid rgba(255,255,255,0.08);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
       transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-      background: #151022;
-      user-select: none;
+      background:#151022;
     }
     .card:hover, .card:active {
       transform: translateY(-4px) scale(1.02);
-      border-color: #ff4d8d;
-      box-shadow: 0 12px 30px rgba(255, 77, 141, 0.35);
+      border-color:#ff4d8d;
+      box-shadow: 0 12px 30px rgba(255,77,141,0.35);
     }
     .card img {
-      width: 100%; 
-      aspect-ratio: 1 / 1; 
-      object-fit: cover; 
-      display: block;
+      width:100%; aspect-ratio: 1 / 1; object-fit:cover; display:block;
     }
     .vs {
-      display: flex; 
-      align-items: center; 
-      justify-content: center;
-      font-weight: 900; 
-      font-size: 1.5rem; 
-      color: #ff9d4d; 
-      min-width: 2.5rem;
+      display:flex; align-items:center; justify-content:center;
+      font-weight:900; font-size:1.5rem; color:#ff9d4d; min-width:2.5rem;
     }
-    #status { 
-      margin-top: 1.3rem; 
-      font-size: 1.1rem; 
-      color: #ffd93d; 
-      min-height: 1.2rem; 
-      font-weight: 700; 
-    }
+    #status { margin-top:1.3rem; font-size:1.1rem; color:#ffd93d; min-height:1.2rem; font-weight:700; }
     .nav-links {
       margin-top: 1.6rem;
       display: flex;
@@ -172,23 +124,17 @@ PAGE_TEMPLATE = """
       align-items: center;
     }
     a.link {
-      color: #ffd93d; 
-      text-decoration: none;
-      font-weight: 600; 
-      border-bottom: 1px solid rgba(255, 217, 61, 0.4); 
-      padding-bottom: 2px;
+      color:#ffd93d; text-decoration:none;
+      font-weight:600; border-bottom:1px solid rgba(255,217,61,0.4); padding-bottom:2px;
     }
     a.reset-link {
-      color: #ff4d8d; 
-      text-decoration: none;
-      font-weight: 600; 
-      border-bottom: 1px solid rgba(255, 77, 141, 0.4); 
-      padding-bottom: 2px;
+      color:#ff4d8d; text-decoration:none;
+      font-weight:600; border-bottom:1px solid rgba(255,77,141,0.4); padding-bottom:2px;
       cursor: pointer;
     }
     @media (max-width: 480px) {
-      .arena { gap: 0.7rem; }
-      .vs { min-width: 1.2rem; font-size: 1rem; }
+      .arena { gap:0.7rem; }
+      .vs { min-width:1.2rem; font-size:1rem; }
     }
   </style>
 </head>
@@ -204,45 +150,24 @@ PAGE_TEMPLATE = """
 
 <script>
 let totalImages = 0;
-
-function encodeImagePath(path) {
-  return path.split('/').map(encodeURIComponent).join('/');
-}
-
-function getRecentHistory() {
-  try {
-    return JSON.parse(sessionStorage.getItem('recentImages') || '[]');
-  } catch (e) {
-    return [];
-  }
-}
-
-function pushToHistory(img1, img2) {
-  let history = getRecentHistory();
-  if (!history.includes(img1)) history.push(img1);
-  if (!history.includes(img2)) history.push(img2);
-  
-  // Keep history buffer capped at 50% of image pool size to prevent repetition
-  const cap = Math.max(2, Math.floor(totalImages * 0.5));
-  while (history.length > cap) {
-    history.shift();
-  }
-  sessionStorage.setItem('recentImages', JSON.stringify(history));
-}
+let currentPair = [];
 
 function renderPair(pair) {
+  currentPair = pair;
   const arena = document.getElementById('arena');
   arena.classList.remove('loading');
   arena.innerHTML = '';
-  
   if (!pair || pair.length < 2) {
-    arena.innerHTML = '<p style="color:#aaa;">Not enough images available in static/images.</p>';
+    arena.innerHTML = '<p>Not enough images in the folder yet.</p>';
     return;
   }
+  
+  const leftImg = pair[0].split('/').map(encodeURIComponent).join('/');
+  const rightImg = pair[1].split('/').map(encodeURIComponent).join('/');
 
   const left = document.createElement('div');
   left.className = 'card';
-  left.innerHTML = `<img src="/static/images/${encodeImagePath(pair[0])}">`;
+  left.innerHTML = `<img src="/static/images/${leftImg}">`;
   left.onclick = () => vote(pair[0], pair[1]);
 
   const vs = document.createElement('div');
@@ -251,7 +176,7 @@ function renderPair(pair) {
 
   const right = document.createElement('div');
   right.className = 'card';
-  right.innerHTML = `<img src="/static/images/${encodeImagePath(pair[1])}">`;
+  right.innerHTML = `<img src="/static/images/${rightImg}">`;
   right.onclick = () => vote(pair[1], pair[0]);
 
   arena.appendChild(left);
@@ -260,21 +185,10 @@ function renderPair(pair) {
 }
 
 async function loadPair() {
-  const history = getRecentHistory();
-  const res = await fetch('/api/pair', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ exclude: history })
-  });
+  const res = await fetch('/api/pair');
   const data = await res.json();
   totalImages = data.total_images || 0;
-  
-  if (data.pair && data.pair.length === 2) {
-    pushToHistory(data.pair[0], data.pair[1]);
-    renderPair(data.pair);
-  } else {
-    renderPair([]);
-  }
+  renderPair(data.pair);
 }
 
 async function vote(winner, loser) {
@@ -288,23 +202,33 @@ async function vote(winner, loser) {
     body: JSON.stringify({winner, loser})
   });
 
-  // Track votes for auto-redirect after each round
+  // Track session vote count for auto-redirect per round
   let sessionVotes = parseInt(sessionStorage.getItem('sessionVotes') || '0') + 1;
   sessionStorage.setItem('sessionVotes', sessionVotes);
 
+  // Trigger redirect once user completes a round equal to the number of images
   if (totalImages > 0 && sessionVotes >= totalImages) {
     sessionStorage.setItem('sessionVotes', '0');
     document.getElementById('status').innerText = '🎉 Round complete! Redirecting to Leaderboard...';
     setTimeout(() => {
       window.location.href = '/leaderboard';
-    }, 800);
+    }, 1000);
     return;
   }
 
   document.getElementById('status').innerText = '';
 
-  // Load next pair while excluding recent items
-  await loadPair();
+  // Pass current active pair to exclude them from the next opponent selection
+  const excludeQuery = `?winner=${encodeURIComponent(winner)}&loser=${encodeURIComponent(loser)}`;
+  const oppRes = await fetch('/api/opponent' + excludeQuery);
+  const oppData = await oppRes.json();
+  
+  if (oppData.opponent) {
+    const nextPair = Math.random() < 0.5 ? [winner, oppData.opponent] : [oppData.opponent, winner];
+    renderPair(nextPair);
+  } else {
+    loadPair();
+  }
 }
 
 function triggerReset() {
@@ -329,274 +253,32 @@ LEADERBOARD_TEMPLATE = """
   <style>
     * { box-sizing: border-box; }
     body {
-      margin: 0; 
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      margin:0; font-family: 'Segoe UI', system-ui, sans-serif;
       background: radial-gradient(circle at top, #1b1030 0%, #0a0612 55%, #050308 100%);
-      color: #f5f5f7; 
-      text-align: center; 
-      min-height: 100vh; 
-      padding: 1.5rem 1rem 3rem;
+      color:#f5f5f7; text-align:center; min-height:100vh; padding:1.5rem 1rem 3rem;
     }
     .brand {
-      font-size: clamp(1.8rem, 7vw, 2.6rem); 
-      font-weight: 900; 
-      letter-spacing: 0.06em;
-      margin: 0.5rem 0 0.1rem; 
-      background: linear-gradient(90deg, #ff4d8d, #ff9d4d, #ffd93d);
-      -webkit-background-clip: text; 
-      background-clip: text; 
-      color: transparent;
-      text-transform: uppercase;
+      font-size: clamp(1.8rem, 7vw, 2.6rem); font-weight:900; letter-spacing:0.06em;
+      margin: 0.5rem 0 0.1rem; background: linear-gradient(90deg,#ff4d8d,#ff9d4d,#ffd93d);
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+      text-transform:uppercase;
     }
     .subhead {
-      font-size: 1rem; 
-      font-weight: 600; 
-      color: #bbb; 
-      margin-bottom: 2rem;
-      letter-spacing: 0.15em; 
-      text-transform: uppercase;
+      font-size:1rem; font-weight:600; color:#bbb; margin-bottom:2rem;
+      letter-spacing:0.15em; text-transform:uppercase;
     }
 
-    /* Podium styling */
+    /* ---- Podium ---- */
     .podium {
-      display: flex; 
-      justify-content: center; 
-      align-items: flex-end;
-      gap: 0.8rem; 
-      max-width: 640px; 
-      margin: 0 auto 2.5rem;
+      display:flex; justify-content:center; align-items:flex-end;
+      gap: 0.8rem; max-width:640px; margin: 0 auto 2.5rem;
     }
     .pod {
-      flex: 1; 
-      display: flex; 
-      flex-direction: column; 
-      align-items: center;
+      flex:1; display:flex; flex-direction:column; align-items:center;
       animation: rise 0.6s ease both;
     }
-    .pod.p1 { order: 2; }
-    .pod.p2 { order: 1; }
-    .pod.p3 { order: 3; }
+    .pod.p1 { order:2; }
+    .pod.p2 { order:1; }
+    .pod.p3 { order:3; }
     @keyframes rise {
-      from { opacity: 0; transform: translateY(24px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .pod .medal { font-size: 1.6rem; margin-bottom: 0.3rem; }
-    .pod .avatar-wrap {
-      position: relative; border-radius: 50%; padding: 3px;
-    }
-    .pod.p1 .avatar-wrap { background: linear-gradient(135deg, #ffd93d, #ff9d4d); }
-    .pod.p2 .avatar-wrap { background: linear-gradient(135deg, #d8d8e0, #9a9aa8); }
-    .pod.p3 .avatar-wrap { background: linear-gradient(135deg, #e0a370, #a5673a); }
-    .pod img {
-      display: block; border-radius: 50%; object-fit: cover; background: #151022;
-      border: 3px solid #0a0612;
-    }
-    .pod.p1 img { width: 104px; height: 104px; }
-    .pod.p2 img { width: 80px; height: 80px; }
-    .pod.p3 img { width: 80px; height: 80px; }
-    .pod .pname {
-      margin-top: 0.6rem; font-size: 0.82rem; font-weight: 600; max-width: 110px;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .pod .pscore { font-size: 0.78rem; color: #ff9d4d; font-weight: 700; margin-top: 0.15rem; }
-    .pod .stand {
-      margin-top: 0.7rem; width: 100%; border-radius: 10px 10px 0 0;
-      display: flex; align-items: flex-start; justify-content: center;
-      font-weight: 900; color: rgba(255,255,255,0.85); padding-top: 0.4rem;
-    }
-    .pod.p1 .stand { height: 78px; background: linear-gradient(180deg, #ffd93d33, #ffd93d0d); font-size: 1.4rem; }
-    .pod.p2 .stand { height: 54px; background: linear-gradient(180deg, #d8d8e033, #d8d8e00d); font-size: 1.2rem; }
-    .pod.p3 .stand { height: 38px; background: linear-gradient(180deg, #e0a37033, #e0a3700d); font-size: 1.2rem; }
-
-    /* Full rankings list */
-    .board { max-width: 520px; margin: 0 auto; }
-    .board-title {
-      text-align: left; font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase;
-      color: #777; margin: 0 0 0.6rem 0.4rem; font-weight: 700;
-    }
-    .row {
-      display: flex; align-items: center; gap: 0.8rem; padding: 0.65rem 0.7rem;
-      text-align: left; border-radius: 12px; background: rgba(255, 255, 255, 0.025);
-      margin-bottom: 0.4rem; border: 1px solid rgba(255, 255, 255, 0.05);
-      transition: background 0.15s ease;
-    }
-    .row:hover { background: rgba(255, 255, 255, 0.05); }
-    .rank { width: 1.8rem; font-weight: 800; color: #777; flex-shrink: 0; font-size: 0.9rem; }
-    .row img {
-      width: 46px; height: 46px; object-fit: cover; border-radius: 10px; flex-shrink: 0;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    .name { flex: 1; font-size: 0.88rem; word-break: break-word; }
-    .stats { font-size: 0.78rem; color: #999; white-space: nowrap; text-align: right; }
-    .wins-count { font-weight: 800; color: #ff9d4d; display: block; font-size: 0.85rem; }
-    .wl { color: #777; }
-
-    .nav-links {
-      margin-top: 2rem;
-      display: flex;
-      justify-content: center;
-      gap: 2rem;
-      align-items: center;
-    }
-    a.link {
-      color: #ffd93d; text-decoration: none;
-      font-weight: 600; border-bottom: 1px solid rgba(255,217,61,0.4); padding-bottom: 2px;
-    }
-    a.reset-link {
-      color: #ff4d8d; text-decoration: none;
-      font-weight: 600; border-bottom: 1px solid rgba(255,77,141,0.4); padding-bottom: 2px;
-      cursor: pointer;
-    }
-
-    @media (max-width: 420px) {
-      .podium { gap: 0.4rem; }
-      .pod.p1 img { width: 84px; height: 84px; }
-      .pod.p2 img, .pod.p3 img { width: 64px; height: 64px; }
-      .pod .pname { max-width: 80px; font-size: 0.72rem; }
-    }
-  </style>
-</head>
-<body>
-  <div class="brand">Facemash</div>
-  <div class="subhead">Leaderboard</div>
-
-  {% if ranked|length >= 1 %}
-  <div class="podium">
-    {% if ranked|length >= 2 %}
-    {% set n2, s2 = ranked[1] %}
-    <div class="pod p2">
-      <div class="medal">🥈</div>
-      <div class="avatar-wrap"><img src="{{ url_for('static', filename='images/' + n2) }}"></div>
-      <div class="pname">{{ n2 }}</div>
-      <div class="pscore">{{ s2.wins }} Wins</div>
-      <div class="stand">2</div>
-    </div>
-    {% endif %}
-
-    {% set n1, s1 = ranked[0] %}
-    <div class="pod p1">
-      <div class="medal">🥇</div>
-      <div class="avatar-wrap"><img src="{{ url_for('static', filename='images/' + n1) }}"></div>
-      <div class="pname">{{ n1 }}</div>
-      <div class="pscore">{{ s1.wins }} Wins</div>
-      <div class="stand">1</div>
-    </div>
-
-    {% if ranked|length >= 3 %}
-    {% set n3, s3 = ranked[2] %}
-    <div class="pod p3">
-      <div class="medal">🥉</div>
-      <div class="avatar-wrap"><img src="{{ url_for('static', filename='images/' + n3) }}"></div>
-      <div class="pname">{{ n3 }}</div>
-      <div class="pscore">{{ s3.wins }} Wins</div>
-      <div class="stand">3</div>
-    </div>
-    {% endif %}
-  </div>
-  {% endif %}
-
-  <div class="board">
-    {% if ranked|length > 3 %}<div class="board-title">Full Rankings</div>{% endif %}
-    {% for name, s in ranked %}
-    <div class="row">
-      <div class="rank">#{{ loop.index }}</div>
-      <img src="{{ url_for('static', filename='images/' + name) }}">
-      <div class="name">{{ name }}</div>
-      <div class="stats">
-        <span class="wins-count">{{ s.wins }} Wins</span>
-        <span class="wl">{{ s.losses }} Losses</span>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  
-  <div class="nav-links">
-    <!-- Resets vote counter so user can vote another full round -->
-    <a class="link" href="/" onclick="sessionStorage.setItem('sessionVotes', '0');">⬅ Back to voting page</a>
-    <a class="reset-link" onclick="triggerReset()">⚙️ Admin Reset</a>
-  </div>
-
-<script>
-function triggerReset() {
-  const pwd = prompt("Enter Admin Password to Reset Scores:");
-  if (pwd) {
-    window.location.href = "/admin-reset-secret?pwd=" + encodeURIComponent(pwd);
-  }
-}
-</script>
-</body>
-</html>
-"""
-
-
-@app.route("/")
-def index():
-    return render_template_string(PAGE_TEMPLATE)
-
-
-@app.route("/api/pair", methods=["POST"])
-def api_pair():
-    scores = load_scores()
-    all_names = list(scores.keys())
-    if len(all_names) < 2:
-        return jsonify({"pair": [], "total_images": len(all_names)})
-
-    data = request.get_json(silent=True) or {}
-    exclude = set(data.get("exclude", []))
-
-    # Try selecting candidates that have not been seen recently
-    available = [n for n in all_names if n not in exclude]
-    if len(available) < 2:
-        available = all_names  # Fallback if exclusion set is too large
-
-    pair = random.sample(available, 2)
-    return jsonify({"pair": pair, "total_images": len(all_names)})
-
-
-@app.route("/api/vote", methods=["POST"])
-def api_vote():
-    scores = load_scores()
-    data = request.get_json() or {}
-    winner, loser = data.get("winner"), data.get("loser")
-    if not winner or not loser or winner not in scores or loser not in scores:
-        return jsonify({"error": "Invalid images."}), 400
-    record_vote(scores, winner, loser)
-    return jsonify({"ok": True})
-
-
-@app.route("/leaderboard")
-def leaderboard():
-    scores = load_scores()
-    ranked = sorted(
-        scores.items(), 
-        key=lambda kv: (kv[1]["wins"], -kv[1]["losses"]), 
-        reverse=True
-    )
-    return render_template_string(LEADERBOARD_TEMPLATE, ranked=ranked)
-
-
-@app.route("/admin-reset-secret")
-def reset_scores():
-    user_password = request.args.get("pwd", "")
-    if user_password != ADMIN_PASSWORD:
-        return (
-            "<h2 style='color:red; text-align:center; font-family:sans-serif; margin-top:3rem;'>"
-            "❌ Incorrect Password! Reset Denied.</h2>"
-            "<p style='text-align:center;'><a href='/leaderboard'>Back to Leaderboard</a></p>", 
-            403
-        )
-
-    images = sorted(
-        str(f.relative_to(IMAGE_DIR)).replace("\\", "/")
-        for f in IMAGE_DIR.glob("**/*")
-        if f.is_file() and f.suffix.lower() in VALID_EXTENSIONS
-    )
-    fresh_scores = {name: {"wins": 0, "losses": 0} for name in images}
-    save_scores(fresh_scores)
-    return redirect(url_for("index"))
-
-
-if __name__ == "__main__":
-    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+      from {
