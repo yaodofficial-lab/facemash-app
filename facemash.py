@@ -1,6 +1,6 @@
 """
-Facemash-style app: head-to-head voting with auto-redirect, simple win/loss counting, 
-and password-protected admin reset.
+Facemash-style app: head-to-head voting with session-based round redirects, 
+shared global win/loss counting, and password-protected admin reset.
 
 Setup:
     pip install flask gunicorn
@@ -142,6 +142,8 @@ PAGE_TEMPLATE = """
   </div>
 
 <script>
+let totalImages = 0;
+
 function renderPair(pair) {
   const arena = document.getElementById('arena');
   arena.innerHTML = '';
@@ -171,20 +173,27 @@ function renderPair(pair) {
 async function loadPair() {
   const res = await fetch('/api/pair');
   const data = await res.json();
+  totalImages = data.total_images || 0;
   renderPair(data.pair);
 }
 
 async function vote(winner, loser) {
   document.getElementById('status').innerText = 'Recording vote...';
-  const res = await fetch('/api/vote', {
+  
+  await fetch('/api/vote', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({winner, loser})
   });
-  const data = await res.json();
 
-  if (data.finished) {
-    document.getElementById('status').innerText = '🎉 All rounds complete! Redirecting to Leaderboard...';
+  // Track session vote count for auto-redirect per round
+  let sessionVotes = parseInt(sessionStorage.getItem('sessionVotes') || '0') + 1;
+  sessionStorage.setItem('sessionVotes', sessionVotes);
+
+  // Trigger redirect once user completes a round equal to the number of images
+  if (totalImages > 0 && sessionVotes >= totalImages) {
+    sessionStorage.setItem('sessionVotes', '0'); // Reset counter for next round
+    document.getElementById('status').innerText = '🎉 Round complete! Redirecting to Leaderboard...';
     setTimeout(() => {
       window.location.href = '/leaderboard';
     }, 1000);
@@ -386,7 +395,8 @@ LEADERBOARD_TEMPLATE = """
   </div>
   
   <div class="nav-links">
-    <a class="link" href="/">⬅ Back to voting page</a>
+    <!-- Clicking this resets session vote count so they can vote another full round -->
+    <a class="link" href="/" onclick="sessionStorage.setItem('sessionVotes', '0');">⬅ Back to voting page</a>
     <a class="reset-link" onclick="triggerReset()">⚙️ Admin Reset</a>
   </div>
 
@@ -413,9 +423,9 @@ def api_pair():
     scores = load_scores()
     names = list(scores.keys())
     if len(names) < 2:
-        return jsonify({"pair": []})
+        return jsonify({"pair": [], "total_images": 0})
     pair = random.sample(names, 2)
-    return jsonify({"pair": pair})
+    return jsonify({"pair": pair, "total_images": len(names)})
 
 
 @app.route("/api/opponent")
@@ -436,12 +446,7 @@ def api_vote():
     if winner not in scores or loser not in scores:
         return jsonify({"error": "Unknown image."}), 400
     record_vote(scores, winner, loser)
-    
-    total_matches = sum(v["wins"] + v["losses"] for v in scores.values()) // 2
-    target_votes = len(scores)
-    finished = total_matches >= target_votes
-    
-    return jsonify({"ok": True, "finished": finished})
+    return jsonify({"ok": True})
 
 
 @app.route("/leaderboard")
