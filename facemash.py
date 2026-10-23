@@ -1,11 +1,11 @@
 """
-Facemash-style app: head-to-head voting with session-based round redirects, 
-shared global win/loss counting, and password-protected admin reset.
+Facemash-style app: head-to-head voting with recursive image loading, 
+session-based round redirects, shared global win/loss counting, and password-protected admin reset.
 
 Setup:
     pip install flask gunicorn
     mkdir static/images
-    # Place your image files (.jpg, .jpeg, .png, .webp, .jfif, .heic, etc.) inside static/images/
+    # Place your image files inside static/images/ (supports subfolders too!)
     python facemash.py
 
 Data is stored in scores.json (created automatically).
@@ -24,19 +24,19 @@ ADMIN_PASSWORD = "brolx"  # Admin password for resetting scores
 
 IMAGE_DIR = Path("static/images")
 SCORES_FILE = Path("scores.json")
-# Expanded extensions to ensure no uploaded photo format is missed (.jfif, .heic, etc.)
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".jfif", ".heic", ".heif", ".gif", ".avif", ".bmp"}
 
 
 def load_scores():
-    """Load existing vote counts, or initialize new ones from images on disk."""
+    """Load existing vote counts, supporting recursive subfolders inside static/images."""
     images = sorted(
-        f.name for f in IMAGE_DIR.glob("*")
-        if f.suffix.lower() in VALID_EXTENSIONS
+        str(f.relative_to(IMAGE_DIR)).replace("\\", "/")
+        for f in IMAGE_DIR.glob("**/*")
+        if f.is_file() and f.suffix.lower() in VALID_EXTENSIONS
     )
     if not images:
         raise RuntimeError(
-            f"No images found in {IMAGE_DIR}/ — place your image files (jpg, png, webp, jfif, heic) there."
+            f"No images found in {IMAGE_DIR}/ — place your image files there."
         )
 
     scores = {}
@@ -88,6 +88,11 @@ PAGE_TEMPLATE = """
     .arena {
       display:flex; justify-content:center; align-items:stretch; gap:1.5rem;
       margin-top:1rem; flex-wrap:wrap; max-width:960px; margin-left:auto; margin-right:auto;
+      transition: opacity 0.15s ease;
+    }
+    .arena.loading {
+      pointer-events: none;
+      opacity: 0.5;
     }
     .card {
       cursor:pointer; border-radius:18px; overflow:hidden; position:relative;
@@ -147,6 +152,7 @@ let totalImages = 0;
 
 function renderPair(pair) {
   const arena = document.getElementById('arena');
+  arena.classList.remove('loading');
   arena.innerHTML = '';
   if (!pair || pair.length < 2) {
     arena.innerHTML = '<p>Not enough images in the folder yet.</p>';
@@ -154,7 +160,7 @@ function renderPair(pair) {
   }
   const left = document.createElement('div');
   left.className = 'card';
-  left.innerHTML = `<img src="/static/images/${encodeURIComponent(pair[0])}">`;
+  left.innerHTML = `<img src="/static/images/${pair[0]}">`;
   left.onclick = () => vote(pair[0], pair[1]);
 
   const vs = document.createElement('div');
@@ -163,7 +169,7 @@ function renderPair(pair) {
 
   const right = document.createElement('div');
   right.className = 'card';
-  right.innerHTML = `<img src="/static/images/${encodeURIComponent(pair[1])}">`;
+  right.innerHTML = `<img src="/static/images/${pair[1]}">`;
   right.onclick = () => vote(pair[1], pair[0]);
 
   arena.appendChild(left);
@@ -179,6 +185,8 @@ async function loadPair() {
 }
 
 async function vote(winner, loser) {
+  const arena = document.getElementById('arena');
+  arena.classList.add('loading');
   document.getElementById('status').innerText = 'Recording vote...';
   
   await fetch('/api/vote', {
@@ -193,7 +201,7 @@ async function vote(winner, loser) {
 
   // Trigger redirect once user completes a round equal to the number of images
   if (totalImages > 0 && sessionVotes >= totalImages) {
-    sessionStorage.setItem('sessionVotes', '0'); // Reset counter for next round
+    sessionStorage.setItem('sessionVotes', '0');
     document.getElementById('status').innerText = '🎉 Round complete! Redirecting to Leaderboard...';
     setTimeout(() => {
       window.location.href = '/leaderboard';
@@ -206,7 +214,9 @@ async function vote(winner, loser) {
   const oppRes = await fetch('/api/opponent?exclude=' + encodeURIComponent(winner));
   const oppData = await oppRes.json();
   if (oppData.opponent) {
-    renderPair([winner, oppData.opponent]);
+    // Randomize whether winner goes left or right for smooth flow
+    const nextPair = Math.random() < 0.5 ? [winner, oppData.opponent] : [oppData.opponent, winner];
+    renderPair(nextPair);
   } else {
     loadPair();
   }
@@ -396,7 +406,6 @@ LEADERBOARD_TEMPLATE = """
   </div>
   
   <div class="nav-links">
-    <!-- Clicking this resets session vote count so they can vote another full round -->
     <a class="link" href="/" onclick="sessionStorage.setItem('sessionVotes', '0');">⬅ Back to voting page</a>
     <a class="reset-link" onclick="triggerReset()">⚙️ Admin Reset</a>
   </div>
@@ -468,8 +477,9 @@ def reset_scores():
         return "<h2 style='color:red; text-align:center; font-family:sans-serif; margin-top:3rem;'>❌ Incorrect Password! Reset Denied.</h2><p style='text-align:center;'><a href='/leaderboard'>Back to Leaderboard</a></p>", 403
 
     images = sorted(
-        f.name for f in IMAGE_DIR.glob("*")
-        if f.suffix.lower() in VALID_EXTENSIONS
+        str(f.relative_to(IMAGE_DIR)).replace("\\", "/")
+        for f in IMAGE_DIR.glob("**/*")
+        if f.is_file() and f.suffix.lower() in VALID_EXTENSIONS
     )
     fresh_scores = {
         name: {"wins": 0, "losses": 0}
